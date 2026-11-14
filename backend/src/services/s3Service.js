@@ -76,7 +76,8 @@ export async function checkObjectExists({ objectKey }) {
       exists: true,
       contentLength: headResult.ContentLength,
       contentType: headResult.ContentType,
-      lastModified: headResult.LastModified
+      lastModified: headResult.LastModified,
+      metadata: headResult.Metadata || {}
     };
   } catch (err) {
     if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {

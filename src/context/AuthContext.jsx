@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../config/supabase.js';
 import api from '../services/api.js';
-import { normalizeIdentifier } from '../utils/authValidator.js';
+import { normalizeIdentifier, OFFICIAL_STAFF_ACCOUNTS } from '../utils/authValidator.js';
 
 const AuthContext = createContext(null);
 
@@ -172,36 +172,71 @@ export const AuthProvider = ({ children }) => {
 
     // Path A: Real Supabase Cloud Authentication
     if (isSupabaseConfigured() && supabase) {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password: password
-      });
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: password
+        });
 
-      if (error) {
-        console.error('[AuthContext] Supabase sign in error:', error.message);
-        throw new Error(error.message || 'Authentication failed. Please verify your email and password.');
+        if (error) {
+          // If Supabase returned an error, check if this is an official staff account
+          // that hasn't been manually created in the Supabase Auth dashboard yet.
+          const isStaff = OFFICIAL_STAFF_ACCOUNTS.some(
+            a => a.email.toLowerCase() === normalizedEmail.toLowerCase() || a.aliases.includes(identifier.trim().toLowerCase())
+          );
+
+          if (isStaff) {
+            console.warn('[AuthContext] Staff account not in Supabase Auth, activating pre-seeded staff session.');
+            const res = await api.post('/auth/login', { email: identifier, password });
+            const { token: newToken, user: userData } = res.data;
+            localStorage.setItem('mcc_token', newToken);
+            localStorage.setItem('mcc_user', JSON.stringify(userData));
+            setToken(newToken);
+            setUser(userData);
+            return userData;
+          }
+
+          console.error('[AuthContext] Supabase sign in error:', error.message);
+          throw new Error(error.message || 'Authentication failed. Please verify your email and password.');
+        }
+
+        const activeSession = data.session;
+        const authUser = data.user;
+
+        setSession(activeSession);
+        setToken(activeSession.access_token);
+        localStorage.setItem('mcc_token', activeSession.access_token);
+
+        // Retrieve verified role and profile from PostgreSQL
+        const verifiedProfile = await fetchVerifiedProfile(authUser.id, authUser);
+        const resolvedUser = verifiedProfile || {
+          id: authUser.id,
+          email: authUser.email,
+          name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
+          role: 'citizen',
+          badge: 'Citizen'
+        };
+
+        setUser(resolvedUser);
+        localStorage.setItem('mcc_user', JSON.stringify(resolvedUser));
+        return resolvedUser;
+      } catch (err) {
+        // Fallback for official staff demo credentials so demonstration is never blocked
+        const isStaff = OFFICIAL_STAFF_ACCOUNTS.some(
+          a => a.email.toLowerCase() === normalizedEmail.toLowerCase() || a.aliases.includes(identifier.trim().toLowerCase())
+        );
+        if (isStaff) {
+          console.warn('[AuthContext] Fallback to pre-seeded staff authentication:', err.message);
+          const res = await api.post('/auth/login', { email: identifier, password });
+          const { token: newToken, user: userData } = res.data;
+          localStorage.setItem('mcc_token', newToken);
+          localStorage.setItem('mcc_user', JSON.stringify(userData));
+          setToken(newToken);
+          setUser(userData);
+          return userData;
+        }
+        throw err;
       }
-
-      const activeSession = data.session;
-      const authUser = data.user;
-
-      setSession(activeSession);
-      setToken(activeSession.access_token);
-      localStorage.setItem('mcc_token', activeSession.access_token);
-
-      // Retrieve verified role and profile from PostgreSQL
-      const verifiedProfile = await fetchVerifiedProfile(authUser.id, authUser);
-      const resolvedUser = verifiedProfile || {
-        id: authUser.id,
-        email: authUser.email,
-        name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
-        role: 'citizen',
-        badge: 'Citizen'
-      };
-
-      setUser(resolvedUser);
-      localStorage.setItem('mcc_user', JSON.stringify(resolvedUser));
-      return resolvedUser;
     }
 
     // Path B: Demo / Offline fallback adapter

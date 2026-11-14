@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import MapView from '../components/MapView';
 import api from '../services/api';
-import { submitComplaint, uploadComplaintImage } from '../services/complaintService';
-import { Camera, MapPin, Upload, AlertCircle, CheckCircle2, ArrowRight, Loader2, Sparkles, ShieldAlert, Layers, RefreshCw } from 'lucide-react';
+import { submitComplaint, uploadComplaintImage, resolveCategoryAndDepartment } from '../services/complaintService';
+import { Camera, MapPin, Upload, AlertCircle, CheckCircle2, ArrowRight, Loader2, Sparkles, ShieldAlert, Layers, RefreshCw, Check } from 'lucide-react';
 import { extractExifGps, stampGeotagOnImage, formatDateTime } from '../utils/exifHelper';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +23,15 @@ export default function FileComplaint({ setActivePage }) {
   const [citizenPhone, setCitizenPhone] = useState(user?.phone || '');
   const [citizenEmail, setCitizenEmail] = useState(user?.email || '');
   const [description, setDescription] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+
+  // Dynamically resolve category and department from user selection or description
+  const resolvedCategory = useMemo(() => {
+    if (selectedCategory && selectedCategory !== 'auto') {
+      return resolveCategoryAndDepartment(selectedCategory);
+    }
+    return resolveCategoryAndDepartment(description);
+  }, [selectedCategory, description]);
 
   // Geotag & Ward state
   const [wardInfo, setWardInfo] = useState(null);
@@ -219,12 +228,17 @@ export default function FileComplaint({ setActivePage }) {
         email: citizenEmail || ''
       };
 
+      const effectiveCategoryName = (selectedCategory && selectedCategory !== 'auto')
+        ? selectedCategory
+        : (resolvedCategory?.category?.name || 'Garbage / Waste');
+
       const result = await submitComplaint({
         citizen: activeCitizen,
         latitude,
         longitude,
         gpsAccuracy,
         description,
+        categoryName: effectiveCategoryName,
         photo,
         token,
         onUploadProgress: (percent) => {
@@ -587,6 +601,89 @@ export default function FileComplaint({ setActivePage }) {
                 onChange={handlePhotoChange} 
                 style={{ display: 'none' }} 
               />
+            </div>
+
+            {/* Grievance Category & Department Selection */}
+            <div className="card" style={{ backgroundColor: '#ffffff', borderColor: '#e5dcbe', boxShadow: '0 2px 8px rgba(75, 94, 40, 0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h4 style={{ fontSize: '0.96rem', fontWeight: 800, color: '#1f241a', margin: 0 }}>
+                  {language === 'kn' ? 'ದೂರಿನ ವರ್ಗ ಮತ್ತು ಇಲಾಖೆ' : 'Issue Category & Assigned Department'}
+                </h4>
+                {selectedCategory ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('')}
+                    style={{ background: 'none', border: 'none', color: '#4b5e28', fontSize: '0.74rem', cursor: 'pointer', textDecoration: 'underline', fontWeight: 700 }}
+                  >
+                    Reset / Auto
+                  </button>
+                ) : (
+                  <span style={{ fontSize: '0.72rem', color: '#68735d', fontWeight: 600 }}>
+                    {language === 'kn' ? 'ಸ್ವಯಂ-ವರ್ಗೀಕರಣ ಸಕ್ರಿಯ' : 'Auto-detect active'}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                {[
+                  { id: 'Pothole / Road Damage', labelEn: 'Roads & Potholes', labelKn: 'ರಸ್ತೆ ಮತ್ತು ಗುಂಡಿ ದುರಸ್ತಿ', icon: '🛣️', dept: 'Roads EE' },
+                  { id: 'Streetlight Failure', labelEn: 'Streetlight & Electrical', labelKn: 'ಬೀದಿದೀಪ ಮತ್ತು ವಿದ್ಯುತ್', icon: '💡', dept: 'Electrical AEE' },
+                  { id: 'Water Leakage', labelEn: 'Water Supply & Drains', labelKn: 'ಕುಡಿಯುವ ನೀರು / ಚರಂಡಿ', icon: '🚰', dept: 'Water Supply EE' },
+                  { id: 'Garbage / Waste', labelEn: 'Garbage & Sanitation', labelKn: 'ಕಸ ಮತ್ತು ಘನತ್ಯಾಜ್ಯ', icon: '🗑️', dept: 'SWM Health' }
+                ].map((cat) => {
+                  const isSelected = selectedCategory === cat.id || (!selectedCategory && resolvedCategory?.category?.name === cat.id);
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedCategory(cat.id)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: isSelected ? '2px solid #4b5e28' : '1px solid #dcd1b5',
+                        backgroundColor: isSelected ? '#edf4e4' : '#fcfaf4',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span style={{ fontSize: '1.3rem' }}>{cat.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.80rem', fontWeight: 800, color: isSelected ? '#3c4e1f' : '#1f241a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {language === 'kn' ? cat.labelKn : cat.labelEn}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: '#68735d', marginTop: '1px' }}>
+                          {cat.dept}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Resolved Department Banner */}
+              <div style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                backgroundColor: '#fbf8ef',
+                border: '1px solid #e2d7ba',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: '#3c4e1f'
+              }}>
+                <div>
+                  <span style={{ fontWeight: 800 }}>🎯 {language === 'kn' ? 'ಆಯ್ಕೆ:' : 'Category:'} </span>
+                  <span style={{ fontWeight: 700, color: '#1f241a' }}>{resolvedCategory?.category?.name}</span>
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#7a621e', fontWeight: 700 }}>
+                  Department: <strong>{resolvedCategory?.department?.department_name || resolvedCategory?.department?.name}</strong>
+                </div>
+              </div>
             </div>
 
             {/* Citizen Details */}

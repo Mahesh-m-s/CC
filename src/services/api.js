@@ -782,11 +782,200 @@ const mockAdapter = async (config) => {
 };
 
 // Create configured Axios client with our seamless local adapter
+
+// ----------------------------------------------------
+// MOCK API (Existing frontend functionality)
+// ----------------------------------------------------
+
 const api = axios.create({
   adapter: mockAdapter,
   timeout: 15000,
 });
 
+// ----------------------------------------------------
+// REAL BACKEND API (AWS S3 + Supabase)
+// ----------------------------------------------------
+
 export const API_BASE = '/api';
 
+export const BACKEND_URL = 'http://localhost:4000/api';
+
+export const uploadApi = axios.create({
+  baseURL: BACKEND_URL,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Retrieve authentication token
+function getAuthToken() {
+  const possibleKeys = [
+    'mcc_token',
+    'mcc_jwt_token',
+    'token',
+    'access_token'
+  ];
+
+  for (const key of possibleKeys) {
+    const value = localStorage.getItem(key);
+
+    if (!value) continue;
+
+    try {
+      const parsed = JSON.parse(value);
+      const token =
+        typeof parsed === 'string'
+          ? parsed
+          : parsed.access_token || parsed.token;
+
+      if (token) return token;
+    } catch {
+      return value;
+    }
+  }
+
+  // Check whether the user object contains a token
+  try {
+    const user = JSON.parse(localStorage.getItem('mcc_user') || '{}');
+
+    return user.access_token || user.token || null;
+  } catch {
+    return null;
+  }
+}
+
+// Attach JWT to every real backend request
+uploadApi.interceptors.request.use(
+  (config) => {
+    const token = getAuthToken();
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    console.log('[UPLOAD API]', {
+      method: config.method,
+      url: config.baseURL + config.url,
+      authenticated: Boolean(token)
+    });
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// ----------------------------------------------------
+// AWS S3 UPLOAD HELPERS
+// ----------------------------------------------------
+
+/**
+ * 1. Generate presigned upload URL
+ */
+export async function getUploadPresignedUrl({
+  complaintId,
+  file
+}) {
+  const response = await uploadApi.post('/uploads/presign', {
+    complaintId,
+    fileName: file.name,
+    contentType: file.type
+  });
+
+  return response.data;
+}
+
+/**
+ * 2. Upload file directly to AWS S3
+ */
+export async function uploadFileToS3({
+  uploadUrl,
+  file
+}) {
+  const response = await axios.put(uploadUrl, file, {
+    headers: {
+      'Content-Type': file.type
+    },
+    timeout: 60000
+  });
+
+  return response;
+}
+
+/**
+ * 3. Confirm upload and register attachment
+ */
+export async function confirmS3Upload({
+  complaintId,
+  objectKey,
+  file
+}) {
+  const response = await uploadApi.post('/uploads/confirm', {
+    complaintId,
+    objectKey,
+    fileName: file.name,
+    contentType: file.type
+  });
+
+  return response.data;
+}
+
+/**
+ * 4. Generate download URL for complaint image
+ */
+export async function getS3DownloadUrl(objectKey) {
+  const response = await uploadApi.get('/uploads/download', {
+    params: {
+      objectKey
+    }
+  });
+
+  return response.data;
+}
+
+/**
+ * 5. Complete upload workflow
+ */
+export async function uploadComplaintImage({
+  complaintId,
+  file
+}) {
+  try {
+    // Generate presigned URL
+    const presign = await getUploadPresignedUrl({
+      complaintId,
+      file
+    });
+
+    // Upload directly to S3
+    await uploadFileToS3({
+      uploadUrl: presign.uploadUrl,
+      file
+    });
+
+    // Register attachment in Supabase
+    const confirmation = await confirmS3Upload({
+      complaintId,
+      objectKey: presign.objectKey,
+      file
+    });
+
+    return {
+      success: true,
+      objectKey: presign.objectKey,
+      attachment: confirmation.attachment
+    };
+
+  } catch (error) {
+    console.error('[AWS Upload Error]', {
+      message: error.message,
+      response: error.response?.data
+    });
+
+    throw error;
+  }
+}
+
+// Keep existing mock API as default export
 export default api;
+

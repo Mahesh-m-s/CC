@@ -19,19 +19,56 @@ import {
  * Maps a category name or keyword into department_id and category object.
  */
 export function resolveCategoryAndDepartment(categoryNameOrDesc) {
-  const text = (categoryNameOrDesc || '').toLowerCase();
-  let matchedCat = CATEGORIES[0]; // default Garbage / Waste
+  const text = (categoryNameOrDesc || '').toLowerCase().trim();
 
-  if (text.includes('pothole') || text.includes('road') || text.includes('asphalt') || text.includes('crater')) {
-    matchedCat = CATEGORIES.find(c => c.name.includes('Pothole')) || CATEGORIES[1];
-  } else if (text.includes('light') || text.includes('lamp') || text.includes('dark') || text.includes('electric')) {
-    matchedCat = CATEGORIES.find(c => c.name.includes('Streetlight')) || CATEGORIES[2];
-  } else if (text.includes('water') || text.includes('leak') || text.includes('pipe') || text.includes('drain')) {
-    matchedCat = CATEGORIES.find(c => c.name.includes('Water')) || CATEGORIES[3];
+  // 1. Direct or exact category matching
+  const exact = CATEGORIES.find(c => 
+    c.name.toLowerCase() === text || 
+    String(c.id) === text ||
+    c.name.toLowerCase().includes(text) && text.length > 3
+  );
+  if (exact) {
+    const dept = DEPARTMENTS.find(d => d.id === exact.department_id) || DEPARTMENTS[0];
+    return { category: exact, department: dept };
   }
 
-  const dept = DEPARTMENTS.find(d => d.id === matchedCat.department_id) || DEPARTMENTS[0];
-  return { category: matchedCat, department: dept };
+  // 2. Keyword & heuristic matching across official categories
+  const wasteKeywords = ['garbage', 'waste', 'trash', 'dump', 'debris', 'litter', 'bin', 'plastic', 'carcass', 'bat', 'bats', 'dead', 'stench', 'smell', 'sweeper', 'sanitation', 'hygiene', 'ಕಸ', 'ತ್ಯಾಜ್ಯ', 'ಸ್ವಚ್ಛತೆ'];
+  const roadKeywords = ['pothole', 'road', 'asphalt', 'crater', 'footpath', 'pavement', 'manhole', 'tar', 'culvert', 'bridge', 'speed breaker', 'ರಸ್ತೆ', 'ಗುಂಡಿ', 'ಡಾಂಬರು'];
+  const lightKeywords = ['light', 'lamp', 'dark', 'electric', 'pole', 'bulb', 'lighting', 'wire', 'junction box', 'illumination', 'transformer', 'ಬೀದಿದೀಪ', 'ದೀಪ', 'ವಿದ್ಯುತ್', 'ಕರೆಂಟ್'];
+  const waterKeywords = ['water', 'pipe', 'pipeline', 'drain', 'sewage', 'sewer', 'gutter', 'drinking water', 'borewell', 'tap', 'valve', 'ನೀರು', 'ಸೋರಿಕೆ', 'ಚರಂಡಿ', 'ಕೊಳವೆ'];
+
+  // Check garbage/waste keywords
+  if (wasteKeywords.some(kw => text.includes(kw))) {
+    const matchedCat = CATEGORIES.find(c => c.name.includes('Garbage')) || CATEGORIES[0];
+    const dept = DEPARTMENTS.find(d => d.id === matchedCat.department_id) || DEPARTMENTS[0];
+    return { category: matchedCat, department: dept };
+  }
+
+  // Check road keywords
+  if (roadKeywords.some(kw => text.includes(kw))) {
+    const matchedCat = CATEGORIES.find(c => c.name.includes('Pothole')) || CATEGORIES[1];
+    const dept = DEPARTMENTS.find(d => d.id === matchedCat.department_id) || DEPARTMENTS[1];
+    return { category: matchedCat, department: dept };
+  }
+
+  // Check lighting keywords
+  if (lightKeywords.some(kw => text.includes(kw))) {
+    const matchedCat = CATEGORIES.find(c => c.name.includes('Streetlight')) || CATEGORIES[2];
+    const dept = DEPARTMENTS.find(d => d.id === matchedCat.department_id) || DEPARTMENTS[2];
+    return { category: matchedCat, department: dept };
+  }
+
+  // Check water keywords
+  if (waterKeywords.some(kw => text.includes(kw)) || text.includes('leak')) {
+    const matchedCat = CATEGORIES.find(c => c.name.includes('Water')) || CATEGORIES[3];
+    const dept = DEPARTMENTS.find(d => d.id === matchedCat.department_id) || DEPARTMENTS[3];
+    return { category: matchedCat, department: dept };
+  }
+
+  const defaultCat = CATEGORIES[0];
+  const defaultDept = DEPARTMENTS.find(d => d.id === defaultCat.department_id) || DEPARTMENTS[0];
+  return { category: defaultCat, department: defaultDept };
 }
 
 /**

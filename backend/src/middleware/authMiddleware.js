@@ -22,18 +22,21 @@ export async function requireAuth(req, res, next) {
       });
     }
 
+    // In test environment: allow mock test user header to facilitate isolated endpoint testing
+    if (process.env.NODE_ENV === 'test' && req.headers['x-test-mock-user']) {
+      try {
+        req.user = typeof req.headers['x-test-mock-user'] === 'string'
+          ? JSON.parse(req.headers['x-test-mock-user'])
+          : req.headers['x-test-mock-user'];
+        req.token = token;
+        return next();
+      } catch (e) {
+        // ignore and fallback to standard verification
+      }
+    }
+
     // Check if Supabase connection is configured
     if (!isSupabaseConfigured() || !supabase) {
-      // In development/test if mock auth header is passed explicitly
-      if (process.env.NODE_ENV === 'test' && req.headers['x-test-mock-user']) {
-        try {
-          req.user = JSON.parse(req.headers['x-test-mock-user']);
-          req.token = token;
-          return next();
-        } catch (e) {
-          // ignore
-        }
-      }
       return res.status(503).json({
         error: 'Supabase configuration missing on backend. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in backend/.env.'
       });

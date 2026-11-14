@@ -33,10 +33,14 @@ app.use(cors({
 
     return callback(new Error('Origin not allowed by CORS'));
   },
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-test-mock-user'],
   credentials: true
 }));
+
+// Express request body parsers (Must precede route definitions)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // -----------------------------------------------------------------------------
 // Health Check Endpoint

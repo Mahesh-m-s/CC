@@ -33,5 +33,7 @@ export const s3Client = new S3Client({
         accessKeyId: AWS_ACCESS_KEY_ID,
         secretAccessKey: AWS_SECRET_ACCESS_KEY
       }
-    : undefined
+    : undefined,
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED'
 });

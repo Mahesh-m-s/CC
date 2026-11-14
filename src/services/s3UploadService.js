@@ -69,12 +69,14 @@ export async function uploadBinaryToS3({ uploadUrl, file, contentType, onProgres
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve({ success: true, status: xhr.status });
       } else {
+        console.error('[S3 Upload] HTTP error:', xhr.status, xhr.statusText, xhr.responseText);
         reject(new Error(`S3 direct upload failed with status ${xhr.status}: ${xhr.statusText || 'Upload rejected'}`));
       }
     };
 
-    xhr.onerror = () => {
-      reject(new Error('Network error during direct S3 image upload. Check S3 CORS configuration.'));
+    xhr.onerror = (e) => {
+      console.error('[S3 Upload] Network / CORS error event:', e, 'ReadyState:', xhr.readyState, 'Status:', xhr.status);
+      reject(new Error('Network error during direct S3 image upload. Check S3 CORS configuration in AWS Console.'));
     };
 
     xhr.ontimeout = () => {

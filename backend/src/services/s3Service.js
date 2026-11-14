@@ -14,12 +14,17 @@ export async function getPresignedUploadUrl({ objectKey, contentType, metadata =
     throw new Error('AWS S3 is not configured on the backend. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_S3_BUCKET in backend/.env.');
   }
 
-  const command = new PutObjectCommand({
+  const putParams = {
     Bucket: AWS_S3_BUCKET,
     Key: objectKey,
-    ContentType: contentType,
-    Metadata: metadata
-  });
+    ContentType: contentType
+  };
+
+  if (metadata && Object.keys(metadata).length > 0) {
+    putParams.Metadata = metadata;
+  }
+
+  const command = new PutObjectCommand(putParams);
 
   const uploadUrl = await getSignedUrl(s3Client, command, {
     expiresIn: UPLOAD_URL_EXPIRY_SECONDS

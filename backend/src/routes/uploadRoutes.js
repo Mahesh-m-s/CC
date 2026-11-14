@@ -128,12 +128,7 @@ router.post('/presign', requireAuth, async (req, res) => {
 
     const result = await getPresignedUploadUrl({
       objectKey,
-      contentType,
-      metadata: {
-        'complaint-id': String(complaintId),
-        'uploaded-by': String(req.user.id),
-        'attachment-type': attachmentType
-      }
+      contentType
     });
 
     return res.status(200).json({

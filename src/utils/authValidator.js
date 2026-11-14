@@ -1,25 +1,11 @@
 // Official MCC Staff Accounts and Authentication Resolver
 
-export const OWNER_EMAIL = 'hemanthkm2006@gmail.com';
-
 export const OFFICIAL_STAFF_ACCOUNTS = [
-  {
-    id: 100,
-    name: 'Hemanth K M',
-    email: 'hemanthkm2006@gmail.com',
-    aliases: ['hemanth', 'hemanthkm', 'owner', 'superadmin', 'commissioner'],
-    passwords: ['Admin@123', 'admin123', 'hemanth123', 'mcc123', 'password', '123456', 'mcc2026', 'Owner@123'],
-    role: 'admin',
-    isOwner: true,
-    phone: '9880010001',
-    title: 'Website Owner & Chief Commissioner',
-    badge: 'Website Owner'
-  },
   {
     id: 1,
     name: 'MCC Administrator',
     email: 'admin@mcc.gov.in',
-    aliases: ['admin', 'administrator'],
+    aliases: ['admin', 'administrator', 'commissioner'],
     passwords: ['Admin@123', 'admin123', 'mcc123', 'password', '123456', 'mcc2026'],
     role: 'admin',
     phone: '9880012345',
@@ -109,41 +95,18 @@ export const OFFICIAL_STAFF_ACCOUNTS = [
 ];
 
 /**
- * Creates an audit dispatch email record for hemanthkm2006@gmail.com on every login.
- */
-export function createLoginNotification(user) {
-  const now = new Date();
-  return {
-    id: `LOGIN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    to: OWNER_EMAIL,
-    from: 'security-alerts@mysurucitycorporation.gov.in',
-    subject: `🚨 [MCC Security Alert] New Staff Login: ${user.name} (${user.role.toUpperCase()})`,
-    timestamp: now.toISOString(),
-    formatted_time: now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-    user_id: user.id,
-    user_name: user.name,
-    user_email: user.email,
-    user_role: user.role,
-    user_title: user.title || user.department_name || (user.isOwner ? 'Website Owner' : 'MCC Staff'),
-    is_owner: !!user.isOwner,
-    ip_address: '106.51.72.18 (Mysuru, Karnataka)',
-    status: 'Dispatched to hemanthkm2006@gmail.com',
-    details: `Official staff login verified. Session token provisioned for ${user.email} (${user.name}). Automatic security dispatch sent to portal owner hemanthkm2006@gmail.com.`
-  };
-}
-
-/**
- * Normalizes input email or alias into full official format.
+ * Normalizes input email, phone, or alias into full official format.
  */
 export function normalizeIdentifier(input) {
   if (!input) return '';
   const trimmed = input.trim().toLowerCase();
 
-  if (trimmed === 'hemanth' || trimmed === 'owner' || trimmed === 'hemanthkm' || trimmed === 'superadmin') {
-    return OWNER_EMAIL;
-  }
-
   if (trimmed.includes('@')) return trimmed;
+
+  // Pure phone number
+  if (/^\+?\d{7,15}$/.test(trimmed)) {
+    return trimmed;
+  }
 
   // Check alias lookup
   for (const acc of OFFICIAL_STAFF_ACCOUNTS) {
@@ -156,29 +119,79 @@ export function normalizeIdentifier(input) {
 }
 
 /**
- * Authenticates staff credentials against known staff accounts and dynamic MCC domain entries.
+ * Registers a new citizen user.
+ * Returns { success: boolean, user?: object, fullUser?: object, error?: string }
+ */
+export function registerNewUser({ name, email, phone, password, ward_id = null, ward_name = '' }, existingUsers = []) {
+  if (!name || !name.trim() || name.trim().length < 2) {
+    return { success: false, error: 'Full name is required (minimum 2 characters).' };
+  }
+  if (!email || !email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+  if (!phone || !phone.trim() || phone.trim().replace(/\D/g, '').length < 10) {
+    return { success: false, error: 'Please enter a valid 10-digit mobile number.' };
+  }
+  if (!password || password.length < 6) {
+    return { success: false, error: 'Password must be at least 6 characters long.' };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPhone = phone.trim().replace(/\D/g, '');
+
+  // Check existing users and staff accounts
+  const emailConflict = (existingUsers || []).some(u => u.email && u.email.toLowerCase() === cleanEmail) ||
+    OFFICIAL_STAFF_ACCOUNTS.some(a => a.email.toLowerCase() === cleanEmail);
+  if (emailConflict) {
+    return { success: false, error: 'An account with this email address already exists. Please sign in instead.' };
+  }
+
+  const newId = Date.now();
+  const fullUser = {
+    id: newId,
+    name: name.trim(),
+    email: cleanEmail,
+    phone: cleanPhone,
+    password: password,
+    role: 'citizen',
+    ward_id: ward_id ? parseInt(ward_id, 10) : null,
+    ward_name: ward_name || 'Mysuru Resident',
+    title: 'Resident of Mysuru',
+    badge: 'Citizen',
+    created_at: new Date().toISOString()
+  };
+
+  const safeUser = { ...fullUser };
+  delete safeUser.password;
+
+  return { success: true, user: safeUser, fullUser };
+}
+
+/**
+ * Authenticates user credentials against official staff accounts and registered users list.
  * Returns { success: boolean, user?: object, error?: string }
  */
-export function authenticateStaff(inputEmail, inputPassword, customUsersList = []) {
-  if (!inputEmail || !inputEmail.trim()) {
-    return { success: false, error: 'Official email or staff ID is required.' };
+export function authenticateUser(inputIdentifier, inputPassword, customUsersList = []) {
+  if (!inputIdentifier || !inputIdentifier.trim()) {
+    return { success: false, error: 'Email, phone number, or staff ID is required.' };
   }
   if (!inputPassword || !inputPassword.trim()) {
     return { success: false, error: 'Password is required.' };
   }
 
-  const normalized = normalizeIdentifier(inputEmail);
+  const normalized = normalizeIdentifier(inputIdentifier);
   const password = inputPassword.trim();
   const lowerPassword = password.toLowerCase();
+  const rawInput = inputIdentifier.trim().toLowerCase();
 
-  // Search in official predefined staff list first
+  // 1. Search in official predefined staff list
   const matchedOfficial = OFFICIAL_STAFF_ACCOUNTS.find(acc => 
-    acc.email.toLowerCase() === normalized || acc.aliases.includes(inputEmail.trim().toLowerCase())
+    acc.email.toLowerCase() === normalized || acc.aliases.includes(rawInput)
   );
 
   if (matchedOfficial) {
     const passwordMatch = matchedOfficial.passwords.some(p => p.toLowerCase() === lowerPassword);
-    if (passwordMatch || ['mcc123', 'password', '123456', 'mcc2026', 'admin', 'officer', 'owner', 'hemanth123'].includes(lowerPassword)) {
+    if (passwordMatch || ['mcc123', 'admin@123', 'officer@123', 'corporator@123'].includes(lowerPassword)) {
       const safe = { ...matchedOfficial };
       delete safe.passwords;
       delete safe.aliases;
@@ -186,34 +199,31 @@ export function authenticateStaff(inputEmail, inputPassword, customUsersList = [
     }
   }
 
-  // Search in custom or dynamic DB users list
+  // 2. Search in registered users / custom DB list (citizens and dynamic staff)
   if (Array.isArray(customUsersList)) {
-    const matchedCustom = customUsersList.find(u => 
-      u.email && (u.email.toLowerCase() === normalized || u.email.toLowerCase() === inputEmail.trim().toLowerCase())
-    );
+    const matchedCustom = customUsersList.find(u => {
+      const uEmail = (u.email || '').toLowerCase();
+      const uPhone = (u.phone || '').replace(/\D/g, '');
+      const searchPhone = rawInput.replace(/\D/g, '');
+      return uEmail === normalized || uEmail === rawInput || (searchPhone && uPhone === searchPhone);
+    });
+
     if (matchedCustom) {
       if (
         matchedCustom.password === password ||
         matchedCustom.password?.toLowerCase() === lowerPassword ||
-        ['mcc123', 'admin@123', 'officer@123', 'corporator@123', 'hemanth123'].includes(lowerPassword)
+        ['mcc123', 'admin@123', 'officer@123', 'corporator@123'].includes(lowerPassword)
       ) {
         const safe = { ...matchedCustom };
         delete safe.password;
         return { success: true, user: safe };
+      } else {
+        return { success: false, error: 'Incorrect password. Please try again.' };
       }
     }
   }
 
-  // If user entered hemanth's email with any password
-  if (normalized === OWNER_EMAIL) {
-    const ownerAccount = OFFICIAL_STAFF_ACCOUNTS.find(a => a.email === OWNER_EMAIL);
-    const safe = { ...ownerAccount };
-    delete safe.passwords;
-    delete safe.aliases;
-    return { success: true, user: safe };
-  }
-
-  // If user entered any official @mcc.gov.in address with a reasonable password, provision a session
+  // 3. Fallback for any official @mcc.gov.in address with demo password
   if (normalized.endsWith('@mcc.gov.in')) {
     const prefix = normalized.split('@')[0];
     let role = 'field_officer';
@@ -246,7 +256,8 @@ export function authenticateStaff(inputEmail, inputPassword, customUsersList = [
       role,
       department_id: deptId,
       department_name: deptName,
-      phone: '98800' + Math.floor(10000 + Math.random() * 90000)
+      phone: '98800' + Math.floor(10000 + Math.random() * 90000),
+      badge: role === 'admin' ? 'Admin' : (role === 'corporator' ? 'Corporator' : 'Officer')
     };
 
     return { success: true, user: dynamicUser };
@@ -254,6 +265,9 @@ export function authenticateStaff(inputEmail, inputPassword, customUsersList = [
 
   return {
     success: false,
-    error: 'Invalid credentials. Please use an official MCC account, the Owner account (hemanthkm2006@gmail.com), or 1-click login.'
+    error: 'Account not found or invalid credentials. If you are a new resident, please register a Citizen Account.'
   };
 }
+
+// Backwards-compatible alias for existing imports
+export const authenticateStaff = authenticateUser;

@@ -25,7 +25,7 @@ function MainApp() {
       case 'file-complaint':
         return <FileComplaint setActivePage={setActivePage} />;
       case 'track':
-        return <TrackComplaint />;
+        return <TrackComplaint setActivePage={setActivePage} />;
       case 'about':
         return <About />;
       case 'login':

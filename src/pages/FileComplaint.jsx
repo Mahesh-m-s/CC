@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import MapView from '../components/MapView';
 import api from '../services/api';
-import { Camera, MapPin, Upload, AlertCircle, CheckCircle2, ArrowRight, Loader2, Sparkles, ShieldAlert, Layers } from 'lucide-react';
+import { submitComplaint, uploadComplaintImage } from '../services/complaintService';
+import { Camera, MapPin, Upload, AlertCircle, CheckCircle2, ArrowRight, Loader2, Sparkles, ShieldAlert, Layers, RefreshCw } from 'lucide-react';
 import { extractExifGps, stampGeotagOnImage, formatDateTime } from '../utils/exifHelper';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import wardsData from '../data/mysuru_wards.json';
 
 export default function FileComplaint({ setActivePage }) {
   const { language, t } = useLanguage();
+  const { user, token, isCloudAuth } = useAuth();
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [latitude, setLatitude] = useState(12.2958);
@@ -16,9 +19,9 @@ export default function FileComplaint({ setActivePage }) {
   const [locating, setLocating] = useState(false);
   const [locationMode, setLocationMode] = useState('current');
   const [locationSource, setLocationSource] = useState('current');
-  const [citizenName, setCitizenName] = useState('');
-  const [citizenPhone, setCitizenPhone] = useState('');
-  const [citizenEmail, setCitizenEmail] = useState('');
+  const [citizenName, setCitizenName] = useState(user?.name || '');
+  const [citizenPhone, setCitizenPhone] = useState(user?.phone || '');
+  const [citizenEmail, setCitizenEmail] = useState(user?.email || '');
   const [description, setDescription] = useState('');
 
   // Geotag & Ward state
@@ -27,7 +30,13 @@ export default function FileComplaint({ setActivePage }) {
   const [exifBadge, setExifBadge] = useState(null);
   const [isStamping, setIsStamping] = useState(false);
 
+  // Cloud upload progress & retry state
   const [submitting, setSubmitting] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [incompleteComplaint, setIncompleteComplaint] = useState(null);
+  const [retryingUpload, setRetryingUpload] = useState(false);
+
   const [errorMsg, setErrorMsg] = useState('');
   const [successResult, setSuccessResult] = useState(null);
 
@@ -190,36 +199,97 @@ export default function FileComplaint({ setActivePage }) {
       return;
     }
 
+    // If Cloud Auth is enabled and user is not signed in
+    if (isCloudAuth && !user) {
+      setErrorMsg(language === 'kn' 
+        ? 'ದೂರು ಸಲ್ಲಿಸಲು ದಯವಿಟ್ಟು ನಾಗರಿಕ ಖಾತೆಗೆ ಸೈನ್ ಇನ್ ಮಾಡಿ ಅಥವಾ ನೋಂದಾಯಿಸಿ.' 
+        : 'Please sign in or register a Citizen Account to submit a verified civic complaint.');
+      return;
+    }
+
     setSubmitting(true);
     setErrorMsg('');
-
-    const formData = new FormData();
-    formData.append('photo', photo);
-    formData.append('latitude', latitude);
-    formData.append('longitude', longitude);
-    if (gpsAccuracy) formData.append('gps_accuracy_m', gpsAccuracy);
-    if (citizenName) formData.append('citizen_name', citizenName);
-    if (citizenPhone) formData.append('citizen_phone', citizenPhone);
-    if (citizenEmail) formData.append('citizen_email', citizenEmail);
-    if (description) formData.append('description', description);
+    setUploadProgress(0);
+    setUploadStatusText(language === 'kn' ? 'ದೂರು ದಾಖಲಿಸಲಾಗುತ್ತಿದೆ...' : 'Registering grievance in cloud database...');
 
     try {
-      formData.append('location_source', locationSource);
-      const res = await api.post('/complaints', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      const activeCitizen = user || {
+        name: citizenName || 'Citizen of Mysuru',
+        phone: citizenPhone || '',
+        email: citizenEmail || ''
+      };
+
+      const result = await submitComplaint({
+        citizen: activeCitizen,
+        latitude,
+        longitude,
+        gpsAccuracy,
+        description,
+        photo,
+        token,
+        onUploadProgress: (percent) => {
+          setUploadProgress(percent);
+          setUploadStatusText(
+            language === 'kn' 
+              ? `AWS S3 ಗೆ ಫೋಟೋ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ (${percent}%)...` 
+              : `Uploading photograph directly to AWS S3 (${percent}%)...`
+          );
+        }
       });
-      setSuccessResult(res.data);
+
+      // Check if image upload failed after complaint creation
+      if (result.imageUploadStatus && !result.imageUploadStatus.uploaded && result.imageUploadStatus.error) {
+        setIncompleteComplaint(result.complaint);
+        setErrorMsg(`Complaint registered (${result.complaint_code}), but photograph upload to AWS S3 encountered an issue: ${result.imageUploadStatus.error}. You can retry uploading the image below.`);
+      } else {
+        setIncompleteComplaint(null);
+        setSuccessResult(result);
+      }
     } catch (err) {
-      const serverMsg = err.response?.data?.error || err.response?.data?.message;
+      console.error('[FileComplaint] Submission error:', err);
+      const serverMsg = err.message || err.response?.data?.error || err.response?.data?.message;
       if (serverMsg) {
         setErrorMsg(serverMsg);
-      } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-        setErrorMsg('Submission timed out. Please try again.');
       } else {
         setErrorMsg('Submission failed. Please check inputs and try again.');
       }
     } finally {
       setSubmitting(false);
+      setUploadStatusText('');
+    }
+  };
+
+  const handleRetryImageUpload = async () => {
+    if (!incompleteComplaint || !photo) return;
+    setRetryingUpload(true);
+    setErrorMsg('');
+    setUploadProgress(0);
+    setUploadStatusText(language === 'kn' ? 'AWS S3 ಗೆ ಮರುಪ್ರಯತ್ನಿಸಲಾಗುತ್ತಿದೆ...' : 'Retrying upload to AWS S3...');
+
+    try {
+      await uploadComplaintImage({
+        complaintId: incompleteComplaint.id,
+        file: photo,
+        attachmentType: 'issue',
+        token,
+        onProgress: (pct) => setUploadProgress(pct)
+      });
+
+      // Success! Move to success result screen
+      setSuccessResult({
+        complaint_code: incompleteComplaint.complaint_code,
+        category_name: incompleteComplaint.category,
+        ward_name: wardInfo?.ward_name || `Ward ${incompleteComplaint.ward_id}`,
+        ward_number: wardInfo?.ward_number || incompleteComplaint.ward_id,
+        priority: incompleteComplaint.priority,
+        sla_due_at: incompleteComplaint.sla_due_at
+      });
+      setIncompleteComplaint(null);
+    } catch (err) {
+      setErrorMsg(`Retry failed: ${err.message}. Please verify backend and S3 connectivity.`);
+    } finally {
+      setRetryingUpload(false);
+      setUploadStatusText('');
     }
   };
 
@@ -329,6 +399,76 @@ export default function FileComplaint({ setActivePage }) {
               : 'Upload a photo and share your GPS location. No mandatory registration required.'}
           </p>
         </div>
+
+        {/* Cloud Incomplete Image Upload Alert with Retry */}
+        {incompleteComplaint && (
+          <div style={{
+            backgroundColor: '#fffbeb',
+            border: '1.5px solid #fcd34d',
+            color: '#92400e',
+            padding: '16px',
+            borderRadius: '10px',
+            marginBottom: '20px',
+            boxShadow: '0 2px 8px rgba(217, 119, 6, 0.12)'
+          }}>
+            <div style={{ fontWeight: 800, fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={20} color="#d97706" />
+              <span>{language === 'kn' ? 'ದೂರು ರಚನೆಯಾಗಿದೆ — ಫೋಟೋ ಅಪ್‌ಲೋಡ್ ಅಪೂರ್ಣವಾಗಿದೆ' : 'Complaint Registered — Image Upload Incomplete'}</span>
+            </div>
+            <p style={{ fontSize: '0.86rem', margin: '8px 0 14px 0', lineHeight: 1.5 }}>
+              Your complaint record was created with official ID <strong>{incompleteComplaint.complaint_code}</strong>. However, the photo transfer directly to AWS S3 was interrupted. You can retry uploading the image right now without creating a duplicate record.
+            </p>
+            <button
+              type="button"
+              onClick={handleRetryImageUpload}
+              disabled={retryingUpload}
+              className="btn btn-olive"
+              style={{
+                padding: '9px 18px',
+                fontSize: '0.86rem',
+                fontWeight: 800,
+                backgroundColor: '#4b5e28',
+                color: '#ffffff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <RefreshCw size={15} className={retryingUpload ? 'animate-spin' : ''} />
+              <span>{retryingUpload ? 'Uploading directly to S3...' : 'Retry Photo Upload to AWS S3'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Guest prompt if Cloud Auth is active */}
+        {isCloudAuth && !user && (
+          <div style={{
+            backgroundColor: '#fefce8',
+            border: '1.5px solid #fef08a',
+            color: '#854d0e',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}>
+            <div style={{ fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>🔐</span>
+              <span><strong>Notice:</strong> Please sign in or create a Citizen Account to register verified complaints to your profile.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActivePage('login')}
+              className="btn btn-olive"
+              style={{ padding: '6px 14px', fontSize: '0.8rem', backgroundColor: '#4b5e28', color: '#fff' }}
+            >
+              Sign In / Register
+            </button>
+          </div>
+        )}
 
         {errorMsg && (
           <div style={{
@@ -489,6 +629,19 @@ export default function FileComplaint({ setActivePage }) {
                 </div>
               </div>
 
+              {/* Progress bar during direct S3 transfer */}
+              {submitting && uploadProgress > 0 && uploadProgress < 100 && (
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: '#4b5e28', fontWeight: 700, marginBottom: '4px' }}>
+                    <span>{uploadStatusText}</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div style={{ width: '100%', height: '6px', backgroundColor: '#e2d7ba', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${uploadProgress}%`, height: '100%', backgroundColor: '#4b5e28', transition: 'width 0.2s ease' }} />
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={submitting || isOutsideMcc}
@@ -507,7 +660,7 @@ export default function FileComplaint({ setActivePage }) {
               >
                 {submitting ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> {language === 'kn' ? 'ವರ್ಗೀಕರಿಸಿ ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ...' : 'Classifying & Submitting...'}
+                    <Loader2 size={18} className="animate-spin" /> {uploadStatusText || (language === 'kn' ? 'ವರ್ಗೀಕರಿಸಿ ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ...' : 'Submitting to Cloud...')}
                   </>
                 ) : isOutsideMcc ? (
                   language === 'kn' ? '⚠️ ಸಲ್ಲಿಸಲಾಗುವುದಿಲ್ಲ: ಮೈಸೂರು ಪಾಲಿಕೆ ವ್ಯಾಪ್ತಿಯ ಹೊರಗಿದೆ' : '⚠️ Cannot Submit: Location Outside MCC'

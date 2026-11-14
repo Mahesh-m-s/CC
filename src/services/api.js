@@ -1,6 +1,6 @@
 import axios from 'axios';
-import wardsData from '../data/mysuru_wards.json';
-import placesData from '../data/important_places.json';
+import wardsData from '../data/mysuru_wards.json' with { type: 'json' };
+import placesData from '../data/important_places.json' with { type: 'json' };
 import {
   DEPARTMENTS,
   CATEGORIES,
@@ -12,8 +12,8 @@ import {
   getDb,
   saveDb,
   USERS
-} from './mockBackend';
-import { authenticateStaff, createLoginNotification, OWNER_EMAIL } from '../utils/authValidator';
+} from './mockBackend.js';
+import { authenticateUser, registerNewUser } from '../utils/authValidator.js';
 
 // Client-side API Mock Adapter that simulates the Mysuru City Corporation backend
 const mockAdapter = async (config) => {
@@ -75,29 +75,21 @@ const mockAdapter = async (config) => {
   };
 
   // ----------------------------------------------------
-  // 1. AUTH ROUTES
+  // 1. AUTH & USER ROUTES
   // ----------------------------------------------------
   if (path === '/auth/login' && method === 'post') {
-    const email = (body.email || '').trim();
+    const identifier = (body.email || body.phone || body.username || '').trim();
     const password = body.password || '';
 
     const customList = (db && Array.isArray(db.users)) ? db.users : USERS;
-    const authResult = authenticateStaff(email, password, customList);
+    const authResult = authenticateUser(identifier, password, customList);
 
     if (!authResult.success) {
-      return err(authResult.error || 'Invalid email or password. Please use demo credentials.', 401);
+      return err(authResult.error || 'Invalid credentials. Please check your email or password.', 401);
     }
 
     const safeUser = authResult.user;
     const token = `mcc_jwt_token_${safeUser.id}_${Date.now()}`;
-
-    // Create automatic login notification email dispatched to hemanthkm2006@gmail.com
-    const dispatchNotice = createLoginNotification(safeUser);
-    if (!db.loginDispatches || !Array.isArray(db.loginDispatches)) {
-      db.loginDispatches = [];
-    }
-    db.loginDispatches.unshift(dispatchNotice);
-    if (db.loginDispatches.length > 50) db.loginDispatches.pop();
 
     // If user is not yet in db.users, persist them
     if (db && Array.isArray(db.users) && !db.users.some(u => u.email?.toLowerCase() === safeUser.email?.toLowerCase())) {
@@ -108,10 +100,32 @@ const mockAdapter = async (config) => {
     return ok({
       token,
       user: safeUser,
-      login_dispatch: dispatchNotice,
-      owner_notified: OWNER_EMAIL,
-      message: `Welcome back, ${safeUser.name}. Login notification sent to ${OWNER_EMAIL}.`
+      message: `Welcome back, ${safeUser.name}!`
     });
+  }
+
+  if (path === '/auth/register' && method === 'post') {
+    const customList = (db && Array.isArray(db.users)) ? db.users : USERS;
+    const regResult = registerNewUser(body, customList);
+
+    if (!regResult.success) {
+      return err(regResult.error || 'Registration failed. Please check inputs.', 400);
+    }
+
+    const { user: safeUser, fullUser } = regResult;
+    const token = `mcc_jwt_token_${safeUser.id}_${Date.now()}`;
+
+    if (!db.users || !Array.isArray(db.users)) {
+      db.users = [...USERS];
+    }
+    db.users.push(fullUser);
+    saveDb(db);
+
+    return ok({
+      token,
+      user: safeUser,
+      message: `Registration successful! Welcome to Mysuru Civic Connect, ${safeUser.name}.`
+    }, 201);
   }
 
   if (path === '/auth/me' && method === 'get') {
@@ -123,10 +137,46 @@ const mockAdapter = async (config) => {
     return ok({ message: 'Logged out successfully' });
   }
 
+  if (path === '/admin/users' && method === 'get') {
+    const safeUsers = (db.users || USERS).map(u => {
+      const copy = { ...u };
+      delete copy.password;
+      delete copy.passwords;
+      return copy;
+    });
+    return ok({
+      count: safeUsers.length,
+      users: safeUsers
+    });
+  }
+
+  // Backwards compatibility endpoint for owner dispatches
   if (path === '/admin/owner-dispatches' && method === 'get') {
     return ok({
-      owner_email: OWNER_EMAIL,
-      dispatches: db.loginDispatches || []
+      owner_email: 'admin@mcc.gov.in',
+      dispatches: []
+    });
+  }
+
+  if (path === '/complaints/my' && method === 'get') {
+    if (!currentUser) return err('Please log in to view your filed grievances.', 401);
+    const userEmail = (currentUser.email || '').toLowerCase();
+    const userPhone = (currentUser.phone || '').replace(/\D/g, '');
+    const userId = currentUser.id;
+
+    const list = db.complaints.filter(c => {
+      const cEmail = (c.citizen_email || '').toLowerCase();
+      const cPhone = (c.citizen_phone || '').replace(/\D/g, '');
+      return (
+        (userEmail && cEmail === userEmail) ||
+        (userPhone && cPhone && cPhone === userPhone) ||
+        (c.citizen_id && c.citizen_id === userId)
+      );
+    });
+
+    return ok({
+      count: list.length,
+      complaints: list
     });
   }
 
@@ -277,9 +327,10 @@ const mockAdapter = async (config) => {
     const newComplaint = {
       id: newId,
       complaint_code: complaintCode,
-      citizen_name: body.citizen_name || 'Anonymous Citizen',
-      citizen_phone: body.citizen_phone || '',
-      citizen_email: body.citizen_email || '',
+      citizen_id: currentUser?.id || null,
+      citizen_name: body.citizen_name || currentUser?.name || 'Anonymous Citizen',
+      citizen_phone: body.citizen_phone || currentUser?.phone || '',
+      citizen_email: body.citizen_email || currentUser?.email || '',
       category_id: catObj.id,
       category_name: catObj.name,
       department_id: deptObj.id,

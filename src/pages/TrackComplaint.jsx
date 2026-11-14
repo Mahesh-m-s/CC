@@ -4,7 +4,9 @@ import PriorityBadge from '../components/PriorityBadge';
 import CivicFAQ from '../components/CivicFAQ';
 import WardHeatMap from '../components/WardHeatMap';
 import ComplaintProgressBar from '../components/ComplaintProgressBar';
+import SecureS3Image from '../components/SecureS3Image';
 import api from '../services/api';
+import { fetchMyComplaints } from '../services/complaintService';
 import { useLanguage } from '../context/LanguageContext';
 import { getImageUrl, getCategoryFallback } from '../utils/imageUrl';
 import { formatDateTime } from '../utils/exifHelper';
@@ -18,22 +20,29 @@ import {
   AlertCircle, 
   Clock, 
   Layers, 
-  Sparkles,
-  Filter,
-  RefreshCw,
-  Eye,
-  SlidersHorizontal,
-  Flame,
-  FileText
+  Sparkles, 
+  Filter, 
+  RefreshCw, 
+  Eye, 
+  SlidersHorizontal, 
+  Flame, 
+  FileText, 
+  UserCheck 
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-export default function TrackComplaint() {
+export default function TrackComplaint({ setActivePage }) {
   const { language, t } = useLanguage();
-  const [activeTab, setActiveTab] = useState('direct'); // 'direct' | 'directory' | 'heatmap'
+  const { user, token } = useAuth();
+  const [activeTab, setActiveTab] = useState(user?.role === 'citizen' ? 'my' : 'direct'); // 'my' | 'direct' | 'directory' | 'heatmap'
+
+  // My Grievances state for logged in user
+  const [myComplaints, setMyComplaints] = useState([]);
+  const [myLoading, setMyLoading] = useState(false);
 
   // Direct ID Tracking state
   const [code, setCode] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(user?.phone || '');
   const [loading, setLoading] = useState(false);
   const [complaint, setComplaint] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -71,10 +80,29 @@ export default function TrackComplaint() {
       setCode(qCode);
       if (qPhone) setPhone(qPhone);
       fetchComplaint(qCode, qPhone || '');
-    } else if (qTab === 'heatmap' || qTab === 'directory') {
+    } else if (qTab === 'heatmap' || qTab === 'directory' || qTab === 'my') {
       setActiveTab(qTab);
     }
   }, []);
+
+  // Fetch logged in user's filed grievances
+  useEffect(() => {
+    if (user) {
+      if (user.phone) setPhone(user.phone);
+      const loadMyComplaints = async () => {
+        setMyLoading(true);
+        try {
+          const list = await fetchMyComplaints(user.id, token);
+          setMyComplaints(list || []);
+        } catch (err) {
+          console.warn('Could not fetch citizen complaints:', err);
+        } finally {
+          setMyLoading(false);
+        }
+      };
+      loadMyComplaints();
+    }
+  }, [user, token]);
 
   // Always prefetch directory / all complaints so heatmap and directory have data immediately
   useEffect(() => {
@@ -200,6 +228,30 @@ export default function TrackComplaint() {
             flexWrap: 'wrap',
             boxShadow: '0 2px 8px rgba(75, 94, 40, 0.08)'
           }}>
+            {user && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('my')}
+                style={{
+                  padding: '10px 22px',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 700,
+                  backgroundColor: activeTab === 'my' ? '#4b5e28' : 'transparent',
+                  color: activeTab === 'my' ? '#ffffff' : '#4a5240',
+                  border: activeTab === 'my' ? '1.5px solid #3c4c1f' : '1px solid transparent',
+                  boxShadow: activeTab === 'my' ? '0 2px 8px rgba(75, 94, 40, 0.35)' : 'none',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <UserCheck size={16} /> {language === 'kn' ? 'ನನ್ನ ದೂರುಗಳು' : 'My Grievances'} ({myComplaints.length})
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setActiveTab('direct')}
@@ -267,6 +319,107 @@ export default function TrackComplaint() {
             </button>
           </div>
         </div>
+
+        {/* ============================================================== */}
+        {/* MODE 0: My Filed Grievances (Logged in Citizen) */}
+        {/* ============================================================== */}
+        {activeTab === 'my' && (
+          <div style={{ marginBottom: '40px' }}>
+            {myLoading ? (
+              <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#5e6654', backgroundColor: '#ffffff', borderColor: '#e5dcbe' }}>
+                <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 10px auto', color: '#4b5e28' }} />
+                <div>Loading your filed complaints...</div>
+              </div>
+            ) : myComplaints.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: '40px', backgroundColor: '#ffffff', borderColor: '#e5dcbe' }}>
+                <FileText size={38} style={{ color: '#b38328', margin: '0 auto 12px auto' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1f241a' }}>
+                  {language === 'kn' ? 'ನೀವು ಇನ್ನೂ ಯಾವುದೇ ದೂರು ಸಲ್ಲಿಸಿಲ್ಲ' : 'You have not submitted any complaints yet'}
+                </h3>
+                <p style={{ color: '#5e6654', fontSize: '0.88rem', margin: '6px 0 16px 0' }}>
+                  {language === 'kn'
+                    ? 'ನಿಮ್ಮ ವಾರ್ಡ್‌ನಲ್ಲಿ ರಸ್ತೆ, ಕಸ, ಬೀದಿದೀಪ ಅಥವಾ ನೀರಿನ ಸಮಸ್ಯೆಗಳಿದ್ದಲ್ಲಿ ತಕ್ಷಣ ದೂರು ಸಲ್ಲಿಸಿ.'
+                    : 'Report potholes, garbage, streetlight failures, or water leakages in your ward.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActivePage('file-complaint')}
+                  className="btn btn-olive"
+                  style={{ padding: '10px 22px', fontSize: '0.9rem', backgroundColor: '#4b5e28', color: '#fff' }}
+                >
+                  {language === 'kn' ? 'ಹೊಸ ದೂರು ಸಲ್ಲಿಸಿ' : 'Report an Issue Now'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#4b5e28', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {language === 'kn' ? 'ನಿಮ್ಮ ಅಧಿಕೃತ ದೂರುಗಳ ಪಟ್ಟಿ' : 'Your Registered Municipal Grievances'} ({myComplaints.length})
+                  </span>
+                </div>
+                {myComplaints.map(c => (
+                  <div key={c.id} className="card" style={{
+                    padding: '18px 22px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    backgroundColor: '#ffffff',
+                    borderColor: '#e5dcbe',
+                    boxShadow: '0 2px 8px rgba(75, 94, 40, 0.05)',
+                    borderLeft: (c.status === 'Resolved' || c.status === 'RESOLVED') 
+                      ? '4px solid #4b5e28' 
+                      : ((c.status === 'Overdue' || c.status === 'OVERDUE') ? '4px solid #b91c1c' : '4px solid #b38328')
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ flex: 1, minWidth: '240px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: 800, color: '#b38328', fontSize: '1.05rem' }}>
+                            {c.complaint_code}
+                          </span>
+                          <PriorityBadge priority={c.priority} score={c.priority_score} reasons={c.priority_reasons} />
+                          <span className={`badge badge-${c.status}`}>
+                            {c.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#1f241a' }}>
+                          {c.category_name || c.category}
+                        </div>
+                        <p style={{ fontSize: '0.84rem', color: '#4a5040', margin: '4px 0' }}>
+                          {c.description}
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '0.78rem', color: '#5e6654', marginTop: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#4b5e28', fontWeight: 700 }}>
+                            <MapPin size={13} /> Ward {c.ward_number} - {c.ward_name}
+                          </span>
+                          <span>•</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Calendar size={13} /> {formatDateTime(c.created_at)}
+                          </span>
+                          {c.sla_due_at && (
+                            <>
+                              <span>•</span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b38328', fontWeight: 700 }}>
+                                <Clock size={13} /> Target: {formatDateTime(c.sla_due_at)}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleSelectFromDirectory(c)}
+                        className="btn btn-olive"
+                        style={{ padding: '8px 16px', fontSize: '0.82rem', fontWeight: 700, color: '#ffffff', backgroundColor: '#4b5e28' }}
+                      >
+                        <Eye size={15} /> Track Timeline & Photos
+                      </button>
+                    </div>
+                    <ComplaintProgressBar complaint={c} mode="compact" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ============================================================== */}
         {/* MODE 1: Direct ID Tracking */}
@@ -389,14 +542,11 @@ export default function TrackComplaint() {
                       </div>
                       <div style={{ height: '220px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#f5efe1', border: '1.5px solid #e5dcbe' }}>
                         {complaint.images && complaint.images.length > 0 ? (
-                          <img 
-                            src={getImageUrl(complaint.images[0].image_path, complaint.category_name, false)} 
-                            alt="Original Issue" 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={(e) => { 
-                              const fb = getCategoryFallback(complaint.category_name, false);
-                              if (e.target.src !== fb) e.target.src = fb;
-                            }}
+                          <SecureS3Image 
+                            complaintId={complaint.id}
+                            objectKey={complaint.images[0]?.s3_object_key}
+                            fallbackSrc={getImageUrl(complaint.images[0]?.image_path, complaint.category_name, false)}
+                            alt="Original Issue Photo" 
                           />
                         ) : (
                           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5e6654' }}>No Photo</div>
@@ -414,14 +564,11 @@ export default function TrackComplaint() {
                       </div>
                       <div style={{ height: '220px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#f5efe1', border: '1.5px solid #e5dcbe' }}>
                         {complaint.resolution_evidence ? (
-                          <img 
-                            src={getImageUrl(complaint.resolution_evidence.photo_path, complaint.category_name, true)} 
+                          <SecureS3Image 
+                            complaintId={complaint.id}
+                            objectKey={complaint.resolution_evidence?.s3_object_key}
+                            fallbackSrc={getImageUrl(complaint.resolution_evidence?.photo_path, complaint.category_name, true)}
                             alt="Resolution Proof" 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={(e) => { 
-                              const fb = getCategoryFallback(complaint.category_name, true);
-                              if (e.target.src !== fb) e.target.src = fb;
-                            }}
                           />
                         ) : (
                           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5e6654', textAlign: 'center', padding: '24px', lineHeight: 1.5 }}>

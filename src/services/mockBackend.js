@@ -1,6 +1,6 @@
 // Authentic Client-Side Database & Civic Redressal Engine for Mysuru City Corporation
-import wardsData from '../data/mysuru_wards.json';
-import placesData from '../data/important_places.json';
+import wardsData from '../data/mysuru_wards.json' with { type: 'json' };
+import placesData from '../data/important_places.json' with { type: 'json' };
 
 const STORAGE_KEY = 'mcc_civic_database_v2';
 
@@ -488,16 +488,16 @@ function generateInitialComplaints() {
   return complaints;
 }
 
-// Staff Accounts
+// Staff & Demo Accounts
 export const USERS = [
-  { id: 100, name: 'Hemanth K M', email: 'hemanthkm2006@gmail.com', password: 'Admin@123', role: 'admin', isOwner: true, phone: '9880010001', title: 'Website Owner & Chief Commissioner' },
-  { id: 1, name: 'MCC Administrator', email: 'admin@mcc.gov.in', password: 'Admin@123', role: 'admin', phone: '9880012345' },
-  { id: 2, name: 'Suresh Gowda', email: 'roads.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 2, department_name: 'Roads & Infrastructure', phone: '9880033001' },
-  { id: 3, name: 'Ramesh Kumar', email: 'swm.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 1, department_name: 'Solid Waste Management', phone: '9880022001' },
-  { id: 4, name: 'Vijay Bhaskar', email: 'elec.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 3, department_name: 'Electrical & Street Lighting', phone: '9880044001' },
-  { id: 5, name: 'Manjunath Swamy', email: 'water.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 4, department_name: 'Water Supply & Sewerage', phone: '9880055001' },
-  { id: 6, name: 'Corporator J P Nagar', email: 'ward12.corporator@mcc.gov.in', password: 'Corporator@123', role: 'corporator', ward_id: 12, ward_number: 12, ward_name: 'J P Nagar', phone: '9881290000' },
-  { id: 7, name: 'Corporator Agrahara', email: 'ward1.corporator@mcc.gov.in', password: 'Corporator@123', role: 'corporator', ward_id: 1, ward_number: 1, ward_name: 'Agrahara', phone: '9880190000' }
+  { id: 1, name: 'MCC Administrator', email: 'admin@mcc.gov.in', password: 'Admin@123', role: 'admin', phone: '9880012345', title: 'Central Municipal Administrator', badge: 'Admin' },
+  { id: 2, name: 'Suresh Gowda (EE)', email: 'roads.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 2, department_name: 'Roads & Infrastructure', phone: '9880033001', badge: 'Roads & Potholes' },
+  { id: 3, name: 'Ramesh Kumar (SWM)', email: 'swm.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 1, department_name: 'Solid Waste Management', phone: '9880022001', badge: 'Waste / SWM' },
+  { id: 4, name: 'Vijay Bhaskar (AEE)', email: 'elec.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 3, department_name: 'Electrical & Street Lighting', phone: '9880044001', badge: 'Streetlights' },
+  { id: 5, name: 'Manjunath Swamy (AEE)', email: 'water.officer@mcc.gov.in', password: 'Officer@123', role: 'field_officer', department_id: 4, department_name: 'Water Supply & Sewerage', phone: '9880055001', badge: 'Water Supply' },
+  { id: 6, name: 'Corporator (Ward 12 - J P Nagar)', email: 'ward12.corporator@mcc.gov.in', password: 'Corporator@123', role: 'corporator', ward_id: 12, ward_number: 12, ward_name: 'J P Nagar', phone: '9881290000', badge: 'Corporator W-12' },
+  { id: 7, name: 'Corporator (Ward 1 - Agrahara)', email: 'ward1.corporator@mcc.gov.in', password: 'Corporator@123', role: 'corporator', ward_id: 1, ward_number: 1, ward_name: 'Agrahara', phone: '9880190000', badge: 'Corporator W-1' },
+  { id: 8, name: 'Praveen Kumar', email: 'citizen@example.com', password: 'Citizen@123', role: 'citizen', ward_id: 12, ward_number: 12, ward_name: 'J P Nagar', phone: '9880099887', title: 'Mysuru Resident', badge: 'Citizen' }
 ];
 
 // Initialize and retrieve state from localStorage
@@ -512,10 +512,17 @@ export function getDb() {
   if (dbStr) {
     try {
       const parsed = JSON.parse(dbStr);
+      // Clean up any legacy owner or personal dispatches
+      if (Array.isArray(parsed.users)) {
+        parsed.users = parsed.users.filter(u => u.email !== 'hemanthkm2006@gmail.com' && !u.isOwner);
+      }
+      if (parsed.loginDispatches) {
+        delete parsed.loginDispatches;
+      }
       if (!parsed.users || !Array.isArray(parsed.users) || parsed.users.length === 0) {
         parsed.users = USERS;
-        saveDb(parsed);
       }
+      saveDb(parsed);
       return parsed;
     } catch (e) {
       console.warn('Invalid JSON in DB storage, resetting...');

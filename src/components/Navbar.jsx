@@ -53,7 +53,7 @@ export default function Navbar({ activePage, setActivePage }) {
     if (user.role === 'admin') return 'admin-dashboard';
     if (user.role === 'field_officer') return 'officer-dashboard';
     if (user.role === 'corporator') return 'corporator-dashboard';
-    return 'home';
+    return 'track';
   };
 
   const navItems = [
@@ -187,45 +187,45 @@ export default function Navbar({ activePage, setActivePage }) {
                 {/* Clickable User Pill */}
                 <button
                   onClick={() => handleNav(getDashboardPage())}
-                  title={user.isOwner ? 'Website Owner & Chief Commissioner' : 'Go to My Dashboard'}
+                  title="Go to My Dashboard / Complaints"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     padding: '6px 12px',
-                    backgroundColor: user.isOwner ? '#fefce8' : '#edf4e4',
+                    backgroundColor: user.role === 'citizen' ? '#f4f8ee' : '#edf4e4',
                     borderRadius: '8px',
-                    border: user.isOwner ? '1.5px solid #d4af37' : '1.5px solid #4b5e28',
+                    border: user.role === 'citizen' ? '1.5px solid #8ca86e' : '1.5px solid #4b5e28',
                     fontSize: '0.82rem',
                     fontWeight: 700,
-                    color: user.isOwner ? '#715511' : '#2d3a17',
+                    color: '#2d3a17',
                     cursor: 'pointer',
-                    boxShadow: user.isOwner ? '0 1px 4px rgba(212, 175, 55, 0.25)' : '0 1px 3px rgba(75, 94, 40, 0.1)',
+                    boxShadow: '0 1px 3px rgba(75, 94, 40, 0.1)',
                     transition: 'all 0.15s ease'
                   }}
                 >
                   <span style={{ fontSize: '0.9rem' }}>
-                    {user.isOwner ? '👑' : (user.role === 'admin' ? '🏛️' : (user.role === 'corporator' ? '🏛️' : '🛠️'))}
+                    {user.role === 'admin' ? '🏛️' : (user.role === 'corporator' ? '🏛️' : (user.role === 'field_officer' ? '🛠️' : '👤'))}
                   </span>
-                  <span>{user.isOwner ? 'Hemanth' : user.name.split(' ')[0]}</span>
+                  <span>{user.name.split(' ')[0]}</span>
                   <span style={{
                     fontSize: '0.70rem',
-                    backgroundColor: user.isOwner ? '#d4af37' : '#4b5e28',
+                    backgroundColor: user.role === 'citizen' ? '#556b2f' : '#4b5e28',
                     color: '#ffffff',
                     padding: '1px 6px',
                     borderRadius: '4px',
                     fontWeight: 800,
                     textTransform: 'uppercase'
                   }}>
-                    {user.isOwner ? 'Owner' : (user.role === 'admin' ? 'Admin' : (user.role === 'corporator' ? 'Corp' : 'Staff'))}
+                    {user.role === 'admin' ? 'Admin' : (user.role === 'corporator' ? 'Corp' : (user.role === 'field_officer' ? 'Staff' : 'Citizen'))}
                   </span>
                 </button>
 
-                {/* Direct Dashboard Button */}
+                {/* Direct Dashboard or Track Complaints Button */}
                 <button
                   onClick={() => handleNav(getDashboardPage())}
                   className="btn btn-olive"
-                  title="Open Staff Dashboard"
+                  title={user.role === 'citizen' ? 'My Complaints' : 'Open Staff Dashboard'}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -237,8 +237,8 @@ export default function Navbar({ activePage, setActivePage }) {
                     color: '#ffffff'
                   }}
                 >
-                  <BarChart3 size={14} />
-                  <span>{t('dashboard')}</span>
+                  {user.role === 'citizen' ? <Search size={14} /> : <BarChart3 size={14} />}
+                  <span>{user.role === 'citizen' ? (language === 'kn' ? 'ನನ್ನ ದೂರುಗಳು' : 'My Complaints') : t('dashboard')}</span>
                 </button>
 
                 {/* Logout Button */}
@@ -266,10 +266,13 @@ export default function Navbar({ activePage, setActivePage }) {
                   fontSize: '0.86rem',
                   fontWeight: 700,
                   backgroundColor: '#4b5e28',
-                  color: '#ffffff'
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
                 }}
               >
-                <LogIn size={15} /> {t('staff_login')}
+                <LogIn size={15} /> {language === 'kn' ? 'ಲಾಗಿನ್ / ನೋಂದಣಿ' : 'Sign In / Register'}
               </button>
             )}
 

@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { fetchAdminVerificationQueue, adminVerifyComplaint } from '../services/complaintService';
+import SecureS3Image from '../components/SecureS3Image';
 import { getImageUrl, getCategoryFallback } from '../utils/imageUrl';
 import { 
   ShieldAlert, 
@@ -22,6 +25,7 @@ import {
 import { formatDateTime } from '../utils/exifHelper';
 
 export default function AdminDashboard({ initialTab = 'verification' }) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [queue, setQueue] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -29,7 +33,9 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
   const [recurring, setRecurring] = useState([]);
   const [wardScores, setWardScores] = useState([]);
   const [overdueList, setOverdueList] = useState([]);
-  const [ownerDispatches, setOwnerDispatches] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 
   // Verification modal / action
@@ -41,24 +47,24 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [qRes, ovRes, hRes, rRes, wRes, odRes, dRes] = await Promise.all([
-        api.get('/admin/verification-queue'),
-        api.get('/admin/analytics/overview'),
-        api.get('/admin/analytics/hotspots'),
-        api.get('/admin/analytics/recurring-issues'),
-        api.get('/admin/analytics/ward-health-scores'),
-        api.get('/admin/analytics/sla-overdue'),
-        api.get('/admin/owner-dispatches')
+      const [qData, ovRes, hRes, rRes, wRes, odRes, uRes] = await Promise.all([
+        fetchAdminVerificationQueue().catch(() => []),
+        api.get('/admin/analytics/overview').catch(() => ({ data: null })),
+        api.get('/admin/analytics/hotspots').catch(() => ({ data: { hotspots: [] } })),
+        api.get('/admin/analytics/recurring-issues').catch(() => ({ data: { recurring_issues: [] } })),
+        api.get('/admin/analytics/ward-health-scores').catch(() => ({ data: { scores: [] } })),
+        api.get('/admin/analytics/sla-overdue').catch(() => ({ data: { overdue_complaints: [] } })),
+        api.get('/admin/users').catch(() => ({ data: { users: [] } }))
       ]);
-      setQueue(qRes.data.queue || []);
+      setQueue(qData || []);
       setOverview(ovRes.data);
-      setHotspots(hRes.data.hotspots || []);
-      setRecurring(rRes.data.recurring_issues || []);
-      setWardScores(wRes.data.scores || []);
-      setOverdueList(odRes.data.overdue_complaints || []);
-      setOwnerDispatches(dRes.data.dispatches || []);
+      setHotspots(hRes.data?.hotspots || []);
+      setRecurring(rRes.data?.recurring_issues || []);
+      setWardScores(wRes.data?.scores || []);
+      setOverdueList(odRes.data?.overdue_complaints || []);
+      setUsersList(uRes.data?.users || []);
     } catch (err) {
-      console.error(err);
+      console.error('[AdminDashboard] Error loading data:', err);
     } finally {
       setLoading(false);
     }
@@ -66,15 +72,18 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [user]);
 
   const handleVerify = async (decision) => {
     if (!selectedVerify) return;
     setActionLoading(true);
     try {
-      await api.post(`/admin/complaints/${selectedVerify.complaint_id}/verify`, {
-        decision: decision,
-        notes: adminNotes
+      await adminVerifyComplaint({
+        complaintId: selectedVerify.complaint_id,
+        decision,
+        notes: adminNotes,
+        adminId: user?.id,
+        adminName: user?.name
       });
       setBannerMsg({
         type: 'success',
@@ -84,7 +93,7 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
       setAdminNotes('');
       loadData();
     } catch (err) {
-      setBannerMsg({ type: 'error', text: err.response?.data?.error || 'Verification action failed' });
+      setBannerMsg({ type: 'error', text: err.message || 'Verification action failed' });
     } finally {
       setActionLoading(false);
     }
@@ -174,18 +183,14 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
             <Clock size={16} /> Overdue ({overdueList.length})
           </button>
           <button 
-            onClick={() => setActiveTab('owner-mails')}
-            className={`btn ${activeTab === 'owner-mails' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setActiveTab('users')}
+            className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-outline'}`}
             style={{
               padding: '8px 16px',
-              fontSize: '0.85rem',
-              backgroundColor: activeTab === 'owner-mails' ? '#4b5e28' : '#fffdf6',
-              borderColor: '#d4af37',
-              color: activeTab === 'owner-mails' ? '#ffffff' : '#715511',
-              fontWeight: 700
+              fontSize: '0.85rem'
             }}
           >
-            <Mail size={16} /> Login Mails ({ownerDispatches.length})
+            <Users size={16} /> User Directory ({usersList.length})
           </button>
         </div>
       </div>
@@ -472,150 +477,176 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
         </div>
       )}
 
-      {/* 6. Owner Security & Login Email Dispatches Tab */}
-      {activeTab === 'owner-mails' && (
+      {/* 6. Registered Users & Official Staff Directory Tab */}
+      {activeTab === 'users' && (
         <div>
-          {/* Owner Identity & Header Card */}
+          {/* Header & Filter Controls */}
           <div className="card" style={{
-            padding: '24px',
-            backgroundColor: '#fffdf6',
-            border: '2px solid #d4af37',
-            marginBottom: '24px',
-            boxShadow: '0 4px 16px rgba(212, 175, 55, 0.15)'
+            padding: '20px 24px',
+            backgroundColor: '#ffffff',
+            borderColor: '#e2d7ba',
+            marginBottom: '20px',
+            boxShadow: '0 2px 8px rgba(75, 94, 40, 0.05)'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div style={{
-                  width: '54px',
-                  height: '54px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #d4af37, #8c6b16)',
-                  color: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '1.6rem',
-                  boxShadow: '0 3px 8px rgba(140, 107, 22, 0.3)'
-                }}>
-                  👑
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#1f241a', margin: 0 }}>
-                      Hemanth K M
-                    </h3>
-                    <span style={{
-                      backgroundColor: '#d4af37',
-                      color: '#ffffff',
-                      fontSize: '0.72rem',
-                      fontWeight: 800,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      textTransform: 'uppercase'
-                    }}>
-                      Website Owner & Chief Commissioner
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.88rem', color: '#5e6654', marginTop: '4px' }}>
-                    Primary Security Dispatch Recipient: <strong style={{ color: '#4b5e28' }}>hemanthkm2006@gmail.com</strong>
-                  </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1f241a', margin: 0 }}>
+                  Municipal Users & Registered Citizens Directory
+                </h3>
+                <div style={{ fontSize: '0.82rem', color: '#5e6654', marginTop: '2px' }}>
+                  Manage registered citizens, designated ward corporators, and department field officers.
                 </div>
               </div>
 
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                backgroundColor: '#edf4e4',
-                borderRadius: '8px',
-                border: '1px solid #a3b88b',
-                color: '#2e3d16',
-                fontSize: '0.82rem',
-                fontWeight: 700
-              }}>
-                <ShieldCheck size={16} color="#4b5e28" />
-                <span>Automated Login Dispatch Protocol Active</span>
+              {/* Search Bar */}
+              <div style={{ minWidth: '260px' }}>
+                <input
+                  type="text"
+                  placeholder="Search by name, email, or phone..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="form-input"
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '0.85rem',
+                    borderRadius: '8px',
+                    borderColor: '#dcd1b5'
+                  }}
+                />
               </div>
             </div>
-            
-            <p style={{ fontSize: '0.85rem', color: '#68735d', marginTop: '14px', lineHeight: 1.5 }}>
-              In accordance with security requirements, every staff and administrator authentication event on the Mysuru City Corporation portal automatically triggers an audit email dispatch to <strong>hemanthkm2006@gmail.com</strong>.
-            </p>
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h4 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1f241a', margin: 0 }}>
-              Live Security Dispatch Log ({ownerDispatches.length} alerts dispatched)
-            </h4>
-            <span style={{ fontSize: '0.78rem', color: '#6e7762' }}>
-              Destination Mailbox: <strong>hemanthkm2006@gmail.com</strong>
-            </span>
-          </div>
-
-          {ownerDispatches.length === 0 ? (
-            <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              No login dispatches recorded yet in this session. Log in as any staff account to see the dispatched alert.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {ownerDispatches.map((mail, idx) => (
-                <div key={mail.id || idx} className="card" style={{
-                  padding: '16px 20px',
-                  backgroundColor: '#ffffff',
-                  borderColor: '#e2d7ba',
-                  boxShadow: '0 2px 8px rgba(75, 94, 40, 0.05)',
-                  borderLeft: '4px solid #4b5e28'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{
-                          padding: '3px 8px',
-                          backgroundColor: '#edf4e4',
-                          color: '#4b5e28',
-                          borderRadius: '6px',
-                          fontSize: '0.72rem',
-                          fontWeight: 800
-                        }}>
-                          DISPATCH #{ownerDispatches.length - idx}
-                        </span>
-                        <strong style={{ fontSize: '0.94rem', color: '#1f241a' }}>
-                          {mail.subject}
-                        </strong>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: '#5e6654', marginTop: '6px' }}>
-                        <span>To: <strong style={{ color: '#b38328' }}>{mail.to}</strong></span> • 
-                        <span> Authenticated User: <strong>{mail.user_name}</strong> ({mail.user_email})</span> • 
-                        <span> Role: <span className="badge badge-ASSIGNED" style={{ fontSize: '0.65rem' }}>{mail.user_role}</span></span>
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: 'right' }}>
-                      <span className="badge badge-RESOLVED" style={{ fontSize: '0.72rem' }}>
-                        {mail.status || 'Delivered'}
-                      </span>
-                      <div style={{ fontSize: '0.72rem', color: '#88927e', marginTop: '4px' }}>
-                        {mail.formatted_time || mail.timestamp}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{
-                    marginTop: '10px',
-                    padding: '10px 14px',
-                    backgroundColor: '#faf7ee',
-                    borderRadius: '6px',
+            {/* Role Filter Pills */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'all', label: `All Users (${usersList.length})` },
+                { id: 'citizen', label: `Citizens (${usersList.filter(u => u.role === 'citizen').length})` },
+                { id: 'field_officer', label: `Field Officers (${usersList.filter(u => u.role === 'field_officer').length})` },
+                { id: 'corporator', label: `Corporators (${usersList.filter(u => u.role === 'corporator').length})` },
+                { id: 'admin', label: `Administrators (${usersList.filter(u => u.role === 'admin').length})` }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setUserRoleFilter(f.id)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
                     fontSize: '0.78rem',
-                    color: '#4e5545',
-                    fontFamily: 'monospace'
-                  }}>
-                    {mail.details || mail.body || `Login verified for ${mail.user_name}. Session active.`}
-                  </div>
-                </div>
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: userRoleFilter === f.id ? '1.5px solid #4b5e28' : '1px solid #dcd1b5',
+                    backgroundColor: userRoleFilter === f.id ? '#4b5e28' : '#ffffff',
+                    color: userRoleFilter === f.id ? '#ffffff' : '#4b5e28',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {f.label}
+                </button>
               ))}
             </div>
-          )}
+          </div>
+
+          {/* User Cards Grid */}
+          {(() => {
+            const filtered = usersList.filter(u => {
+              if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+              if (userSearch.trim()) {
+                const s = userSearch.toLowerCase();
+                const name = (u.name || '').toLowerCase();
+                const email = (u.email || '').toLowerCase();
+                const phone = (u.phone || '').toLowerCase();
+                return name.includes(s) || email.includes(s) || phone.includes(s);
+              }
+              return true;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                  No users found matching current search and role filters.
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: '14px' }}>
+                {filtered.map(u => (
+                  <div key={u.id || u.email} className="card" style={{
+                    padding: '18px 20px',
+                    backgroundColor: '#ffffff',
+                    borderColor: '#e5dcbe',
+                    boxShadow: '0 2px 8px rgba(75, 94, 40, 0.06)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    gap: '12px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                      <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        backgroundColor: u.role === 'admin' ? '#d4af37' : (u.role === 'corporator' ? '#b38328' : (u.role === 'field_officer' ? '#4b5e28' : '#6b7280')),
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.2rem',
+                        flexShrink: 0
+                      }}>
+                        {u.role === 'admin' ? '🏛️' : (u.role === 'corporator' ? '🏛️' : (u.role === 'field_officer' ? '🛠️' : '👤'))}
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: '0.98rem', color: '#1f241a' }}>
+                            {u.name}
+                          </strong>
+                          <span style={{
+                            fontSize: '0.66rem',
+                            fontWeight: 800,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: u.role === 'admin' ? '#fef3c7' : (u.role === 'corporator' ? '#fef9c3' : (u.role === 'field_officer' ? '#edf4e4' : '#f3f4f6')),
+                            color: u.role === 'admin' ? '#92400e' : (u.role === 'corporator' ? '#854d0e' : (u.role === 'field_officer' ? '#2d3a17' : '#374151')),
+                            textTransform: 'uppercase'
+                          }}>
+                            {u.badge || u.role}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: '0.80rem', color: '#5e6654', marginTop: '4px', wordBreak: 'break-all' }}>
+                          {u.email}
+                        </div>
+                        {u.phone && (
+                          <div style={{ fontSize: '0.76rem', color: '#7a8570', marginTop: '2px' }}>
+                            📞 {u.phone}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      paddingTop: '10px',
+                      borderTop: '1px solid #f1ebd9',
+                      fontSize: '0.76rem',
+                      color: '#6e7762',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <span>
+                        {u.department_name ? `Dept: ${u.department_name}` : (u.ward_name ? `Ward: ${u.ward_name}` : 'General Citizen')}
+                      </span>
+                      <span style={{ color: '#99a38f' }}>
+                        ID #{u.id}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -660,14 +691,11 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
                   ORIGINAL CITIZEN REPORT
                 </div>
                 <div style={{ height: '220px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#e2e8f0' }}>
-                  <img 
-                    src={getImageUrl(selectedVerify.original_photo, selectedVerify.category_name, false)} 
-                    alt="Original" 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={(e) => { 
-                      const fb = getCategoryFallback(selectedVerify.category_name, false);
-                      if (e.target.src !== fb) e.target.src = fb;
-                    }}
+                  <SecureS3Image 
+                    complaintId={selectedVerify.complaint_id}
+                    objectKey={selectedVerify.original_s3_key}
+                    fallbackSrc={getImageUrl(selectedVerify.original_photo, selectedVerify.category_name, false)} 
+                    alt="Original Citizen Issue" 
                   />
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '6px' }}>
@@ -680,14 +708,11 @@ export default function AdminDashboard({ initialTab = 'verification' }) {
                   FIELD OFFICER RESOLUTION PROOF
                 </div>
                 <div style={{ height: '220px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#e2e8f0' }}>
-                  <img 
-                    src={getImageUrl(selectedVerify.resolution_photo, selectedVerify.category_name, true)} 
-                    alt="Resolution" 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={(e) => { 
-                      const fb = getCategoryFallback(selectedVerify.category_name, true);
-                      if (e.target.src !== fb) e.target.src = fb;
-                    }}
+                  <SecureS3Image 
+                    complaintId={selectedVerify.complaint_id}
+                    objectKey={selectedVerify.resolution_s3_key}
+                    fallbackSrc={getImageUrl(selectedVerify.resolution_photo, selectedVerify.category_name, true)} 
+                    alt="Field Officer Resolution" 
                   />
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: '6px' }}>

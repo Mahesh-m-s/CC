@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   Lock, 
   Mail, 
-  ShieldAlert, 
+  Phone, 
+  User, 
+  MapPin, 
   ArrowRight, 
   CheckCircle2, 
   Sparkles, 
@@ -12,86 +14,180 @@ import {
   UserCheck, 
   Building2, 
   Zap, 
-  Compass, 
   LogOut,
   ChevronRight,
-  Shield
+  Shield,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { OFFICIAL_STAFF_ACCOUNTS } from '../utils/authValidator';
+import wardsData from '../data/mysuru_wards.json';
 
 export default function Login({ setActivePage }) {
-  const { user, login, logout } = useAuth();
+  const { user, login, register, logout } = useAuth();
   const { language, t } = useLanguage();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+
+  // Mode: 'login' | 'register'
+  const [authMode, setAuthMode] = useState('login');
+
+  // Login form state
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+
+  // Register form state
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regWard, setRegWard] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
+
+  // Status & feedback
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Sorted list of 65 MCC wards for registration dropdown
+  const sortedWards = useMemo(() => {
+    return (wardsData.features || [])
+      .map(f => f.properties)
+      .filter(p => p && p.ward_number)
+      .sort((a, b) => Number(a.ward_number) - Number(b.ward_number));
+  }, []);
 
   const routeByRole = (role) => {
     if (role === 'admin') setActivePage('admin-dashboard');
     else if (role === 'field_officer') setActivePage('officer-dashboard');
     else if (role === 'corporator') setActivePage('corporator-dashboard');
-    else setActivePage('home');
+    else setActivePage('track');
   };
 
-  const doLogin = async (targetEmail, targetPass) => {
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
+
     try {
-      const loggedUser = await login(targetEmail, targetPass);
-      const isOwner = loggedUser.isOwner || loggedUser.email === 'hemanthkm2006@gmail.com';
-      const welcomeText = isOwner
-        ? (language === 'kn' ? `ಸ್ವಾಗತ ವೆಬ್‌ಸೈಟ್ ಮಾಲೀಕರೇ, ${loggedUser.name}! ಪೂರ್ಣ ಮಾಲೀಕತ್ವ ಪ್ರವೇಶ ಸಕ್ರಿಯಗೊಳಿಸಲಾಗಿದೆ.` : `Welcome Website Owner, ${loggedUser.name}! Full Super Admin & Owner rights active.`)
-        : (language === 'kn' ? `ಸ್ವಾಗತ, ${loggedUser.name}! ಲಾಗಿನ್ ಯಶಸ್ವಿಯಾಗಿದೆ. ಭದ್ರತಾ ಮೇಲ್ hemanthkm2006@gmail.com ಗೆ ರವಾನಿಸಲಾಗಿದೆ.` : `Welcome, ${loggedUser.name}! Login verified. Security notification dispatched to hemanthkm2006@gmail.com.`);
-      setSuccessMsg(welcomeText);
+      const loggedUser = await login(loginIdentifier, loginPassword);
+      setSuccessMsg(
+        language === 'kn' 
+          ? `ಸ್ವಾಗತ, ${loggedUser.name}! ಲಾಗಿನ್ ಯಶಸ್ವಿಯಾಗಿದೆ.` 
+          : `Welcome, ${loggedUser.name}! Successfully signed in.`
+      );
       setTimeout(() => {
         routeByRole(loggedUser.role);
       }, 450);
     } catch (err) {
-      const msg = err.response?.data?.error || (language === 'kn' ? 'ತಪ್ಪಾದ ಇಮೇಲ್ ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್. ದಯವಿಟ್ಟು ಡೆಮೊ ಖಾತೆ ಬಳಸಿ.' : 'Invalid email or password. Please use official MCC credentials.');
+      const msg = err.message || err.response?.data?.error || (language === 'kn' ? 'ತಪ್ಪಾದ ಇಮೇಲ್ ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್. ದಯವಿಟ್ಟು ಪರಿಶೀಲಿಸಿ.' : 'Invalid credentials. Please verify your email or password.');
       setErrorMsg(msg);
       setLoading(false);
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
-    doLogin(email, password);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    if (regPassword !== regConfirmPassword) {
+      setErrorMsg(language === 'kn' ? 'ಪಾಸ್‌ವರ್ಡ್‌ಗಳು ಹೊಂದಾಣಿಕೆಯಾಗುತ್ತಿಲ್ಲ.' : 'Passwords do not match. Please re-enter.');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setErrorMsg(language === 'kn' ? 'ಪಾಸ್‌ವರ್ಡ್ ಕನಿಷ್ಠ ೬ ಅಕ್ಷರಗಳನ್ನು ಹೊಂದಿರಬೇಕು.' : 'Password must be at least 6 characters long.');
+      return;
+    }
+
+    const selectedWardObj = sortedWards.find(w => String(w.ward_number) === String(regWard));
+
+    setLoading(true);
+    try {
+      const newUser = await register({
+        name: regName,
+        email: regEmail,
+        phone: regPhone,
+        password: regPassword,
+        ward_id: selectedWardObj ? selectedWardObj.ward_id || selectedWardObj.ward_number : null,
+        ward_name: selectedWardObj ? selectedWardObj.ward_name : 'Mysuru Resident'
+      });
+
+      if (newUser?.emailConfirmationPending) {
+        setSuccessMsg(
+          language === 'kn'
+            ? 'ಖಾತೆ ಯಶಸ್ವಿಯಾಗಿ ರಚನೆಯಾಗಿದೆ! ದಯವಿಟ್ಟು ನಿಮ್ಮ ಇಮೇಲ್ ಪರಿಶೀಲಿಸಿ ಲಾಗಿನ್ ಮಾಡಿ.'
+            : 'Registration received! Please check your email inbox to confirm your account, then sign in.'
+        );
+        setTimeout(() => {
+          setAuthMode('login');
+          setLoading(false);
+        }, 2000);
+      } else {
+        setSuccessMsg(
+          language === 'kn' 
+            ? `ಖಾತೆ ಯಶಸ್ವಿಯಾಗಿ ರಚನೆಯಾಗಿದೆ! ಸ್ವಾಗತ, ${newUser.name}.` 
+            : `Account created successfully! Welcome to Mysuru Civic Connect, ${newUser.name}.`
+        );
+        setTimeout(() => {
+          routeByRole('citizen');
+        }, 550);
+      }
+    } catch (err) {
+      const msg = err.message || err.response?.data?.error || (language === 'kn' ? 'ನೋಂದಣಿ ವಿಫಲವಾಗಿದೆ. ದಯವಿಟ್ಟು ವಿವರಗಳನ್ನು ಪರಿಶೀಲಿಸಿ.' : 'Registration failed. Please check your information and try again.');
+      setErrorMsg(msg);
+      setLoading(false);
+    }
   };
 
   const handlePreFill = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
+    setAuthMode('login');
+    setLoginIdentifier(demoEmail);
+    setLoginPassword(demoPass);
     setErrorMsg('');
   };
 
-  const handleInstantLogin = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    doLogin(demoEmail, demoPass);
+  const handleInstantLogin = async (demoEmail, demoPass) => {
+    setAuthMode('login');
+    setLoginIdentifier(demoEmail);
+    setLoginPassword(demoPass);
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const loggedUser = await login(demoEmail, demoPass);
+      setSuccessMsg(
+        language === 'kn' 
+          ? `ಸ್ವಾಗತ, ${loggedUser.name}! ಡೆಮೊ ಲಾಗಿನ್ ಸಕ್ರಿಯವಾಗಿದೆ.` 
+          : `Welcome, ${loggedUser.name}! Instant demo login verified.`
+      );
+      setTimeout(() => {
+        routeByRole(loggedUser.role);
+      }, 400);
+    } catch (err) {
+      setErrorMsg(err.response?.data?.error || 'Failed to authenticate demo user.');
+      setLoading(false);
+    }
   };
 
   return (
-    <div style={{ backgroundColor: '#faf6ec', minHeight: '100vh', padding: '50px 16px', color: '#1f241a' }}>
+    <div style={{ backgroundColor: '#faf6ec', minHeight: '100vh', padding: '40px 16px', color: '#1f241a' }}>
       <div className="container" style={{ maxWidth: '640px' }}>
 
-        {/* If user is ALREADY logged in, show clear Active Session state */}
+        {/* Active Session Card if user is already logged in */}
         {user ? (
           <div className="card" style={{
-            padding: '32px',
+            padding: '28px',
             backgroundColor: '#ffffff',
             borderColor: '#b8c9a3',
             boxShadow: '0 6px 24px rgba(75, 94, 40, 0.12)',
-            marginBottom: '28px'
+            marginBottom: '26px'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px' }}>
               <div style={{
-                width: '54px',
-                height: '54px',
+                width: '52px',
+                height: '52px',
                 borderRadius: '50%',
                 backgroundColor: '#edf4e4',
                 color: '#4b5e28',
@@ -101,19 +197,22 @@ export default function Login({ setActivePage }) {
                 justifyContent: 'center',
                 flexShrink: 0
               }}>
-                <UserCheck size={28} />
+                <UserCheck size={26} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#4b5e28', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   {t('active_session')}
                 </span>
-                <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#1f241a', margin: '2px 0' }}>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#1f241a', margin: '2px 0' }}>
                   {user.name}
                 </h3>
                 <div style={{ fontSize: '0.84rem', color: '#5e6654', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span>{user.email}</span>
+                  {user.phone && <span>• {user.phone}</span>}
                   <span>•</span>
-                  <strong style={{ color: '#b38328' }}>{user.department_name || (user.ward_name ? `Ward: ${user.ward_name}` : user.role)}</strong>
+                  <strong style={{ color: '#b38328' }}>
+                    {user.badge || user.department_name || (user.ward_name ? `Ward: ${user.ward_name}` : user.role)}
+                  </strong>
                 </div>
               </div>
             </div>
@@ -124,8 +223,8 @@ export default function Login({ setActivePage }) {
                 className="btn btn-olive"
                 style={{
                   flex: 1,
-                  padding: '12px 20px',
-                  fontSize: '0.94rem',
+                  padding: '11px 18px',
+                  fontSize: '0.92rem',
                   fontWeight: 800,
                   backgroundColor: '#4b5e28',
                   color: '#ffffff',
@@ -135,7 +234,7 @@ export default function Login({ setActivePage }) {
                   gap: '8px'
                 }}
               >
-                <span>{t('go_to_dashboard')}</span>
+                <span>{user.role === 'citizen' ? (language === 'kn' ? 'ನನ್ನ ದೂರುಗಳು & ಪರಿಶೀಲನೆ' : 'My Complaints & Track') : t('go_to_dashboard')}</span>
                 <ArrowRight size={16} />
               </button>
 
@@ -143,8 +242,8 @@ export default function Login({ setActivePage }) {
                 onClick={logout}
                 className="btn btn-outline"
                 style={{
-                  padding: '12px 18px',
-                  fontSize: '0.9rem',
+                  padding: '11px 16px',
+                  fontSize: '0.88rem',
                   fontWeight: 700,
                   borderColor: '#fca5a5',
                   color: '#b91c1c',
@@ -157,18 +256,79 @@ export default function Login({ setActivePage }) {
           </div>
         ) : null}
 
-        {/* Main Login Form Card */}
+        {/* Main Authentication Card */}
         <div className="card" style={{
-          padding: '36px',
+          padding: '32px 28px',
           backgroundColor: '#ffffff',
           borderColor: '#e5dcbe',
           boxShadow: '0 4px 24px rgba(75, 94, 40, 0.08)'
         }}>
+
+          {/* Mode Switcher Tabs */}
+          <div style={{
+            display: 'flex',
+            backgroundColor: '#f6f1e2',
+            padding: '4px',
+            borderRadius: '10px',
+            marginBottom: '24px',
+            border: '1px solid #e2d7ba'
+          }}>
+            <button
+              type="button"
+              onClick={() => { setAuthMode('login'); setErrorMsg(''); }}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 800,
+                fontSize: '0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                backgroundColor: authMode === 'login' ? '#ffffff' : 'transparent',
+                color: authMode === 'login' ? '#3c4e1f' : '#68735d',
+                boxShadow: authMode === 'login' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <LogIn size={16} />
+              <span>{language === 'kn' ? 'ಸೈನ್ ಇನ್ (ಲಾಗಿನ್)' : 'Sign In'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAuthMode('register'); setErrorMsg(''); }}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 800,
+                fontSize: '0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                backgroundColor: authMode === 'register' ? '#ffffff' : 'transparent',
+                color: authMode === 'register' ? '#3c4e1f' : '#68735d',
+                boxShadow: authMode === 'register' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <UserPlus size={16} />
+              <span>{language === 'kn' ? 'ಹೊಸ ಖಾತೆ ರಚಿಸಿ (ನಾಗರಿಕ)' : 'Register / New Citizen'}</span>
+            </button>
+          </div>
+
           {/* Header */}
-          <div style={{ textAlign: 'center', marginBottom: '26px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '22px' }}>
             <div style={{
-              width: '60px',
-              height: '60px',
+              width: '54px',
+              height: '54px',
               borderRadius: '14px',
               background: 'linear-gradient(135deg, #4b5e28, #b38328)',
               color: '#ffffff',
@@ -176,16 +336,22 @@ export default function Login({ setActivePage }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              margin: '0 auto 14px auto',
-              boxShadow: '0 4px 12px rgba(75, 94, 40, 0.25)'
+              margin: '0 auto 12px auto',
+              boxShadow: '0 4px 12px rgba(75, 94, 40, 0.22)'
             }}>
-              <Lock size={28} />
+              {authMode === 'login' ? <Lock size={26} /> : <UserPlus size={26} />}
             </div>
-            <h2 style={{ fontSize: '1.7rem', fontWeight: 800, color: '#1f241a', letterSpacing: '-0.02em' }}>
-              {t('staff_portal_title')}
+            
+            <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#1f241a', letterSpacing: '-0.02em', margin: 0 }}>
+              {authMode === 'login' 
+                ? (language === 'kn' ? 'ನಾಗರಿಕ & ಸಿಬ್ಬಂದಿ ಪೋರ್ಟಲ್ ಲಾಗಿನ್' : 'Sign In to Civic Portal')
+                : (language === 'kn' ? 'ಹೊಸ ನಾಗರಿಕ ಖಾತೆ ನೋಂದಣಿ' : 'Register Citizen Account')}
             </h2>
-            <p style={{ color: '#5e6654', fontSize: '0.86rem', marginTop: '4px' }}>
-              {t('staff_portal_desc')}
+            
+            <p style={{ color: '#5e6654', fontSize: '0.85rem', marginTop: '4px' }}>
+              {authMode === 'login'
+                ? (language === 'kn' ? 'ಮೈಸೂರು ಮಹಾನಗರ ಪಾಲಿಕೆಯ ಅಧಿಕೃತ ನಾಗರಿಕ ಮತ್ತು ಸಿಬ್ಬಂದಿ ಪ್ರವೇಶ' : 'Official civic access for Mysuru residents, field officers & administrators')
+                : (language === 'kn' ? 'ದೂರುಗಳನ್ನು ಸುಲಭವಾಗಿ ಸಲ್ಲಿಸಲು ಮತ್ತು ನೇರವಾಗಿ ಪರಿಶೀಲಿಸಲು ನೋಂದಾಯಿಸಿ' : 'Join Mysuru Civic Connect to track your complaints and receive resolution alerts')}
             </p>
           </div>
 
@@ -224,221 +390,311 @@ export default function Login({ setActivePage }) {
               alignItems: 'center',
               gap: '8px'
             }}>
-              <ShieldAlert size={18} color="#dc2626" />
+              <Shield size={18} color="#dc2626" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
-                {language === 'kn' ? 'ಅಧಿಕೃತ ಇಮೇಲ್ ಅಥವಾ ಸಿಬ್ಬಂದಿ ಗುರುತು (ID / Alias)' : 'Official Email / Staff ID'}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input 
-                  type="text"
-                  required
-                  className="form-input"
-                  placeholder="e.g. hemanthkm2006@gmail.com, admin@mcc.gov.in, engineer..."
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={{
-                    padding: '12px 14px',
-                    fontSize: '0.94rem',
-                    borderRadius: '8px',
-                    borderColor: '#dcd1b5'
-                  }}
-                />
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#6e7762', marginTop: '4px' }}>
-                {language === 'kn' ? 'ಮಾಲೀಕರು & ಅಡ್ಮಿನ್: hemanth, owner, admin, engineer, swm, elec, water, corporator' : 'Owner & Staff aliases: hemanth, owner, admin, engineer, swm, elec, water, corporator'}
-              </div>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem', margin: 0 }}>
-                  {language === 'kn' ? 'ಪಾಸ್‌ವರ್ಡ್' : 'Password'}
+          {/* TAB 1: SIGN IN FORM */}
+          {authMode === 'login' ? (
+            <form onSubmit={handleLoginSubmit}>
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                  {language === 'kn' ? 'ಇಮೇಲ್, ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ಅಥವಾ ಸಿಬ್ಬಂದಿ ಗುರುತು' : 'Email Address, Mobile Number, or Staff ID'}
                 </label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text"
+                    required
+                    className="form-input"
+                    placeholder="e.g. citizen@example.com, 9880012345, admin@mcc.gov.in"
+                    value={loginIdentifier}
+                    onChange={(e) => setLoginIdentifier(e.target.value)}
+                    style={{
+                      padding: '12px 14px',
+                      fontSize: '0.94rem',
+                      borderRadius: '8px',
+                      borderColor: '#dcd1b5'
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#6e7762', marginTop: '4px' }}>
+                  {language === 'kn' ? 'ಸಿಬ್ಬಂದಿ ಅಡ್ಡಹೆಸರುಗಳು: admin, roads, swm, elec, water, corporator' : 'Staff aliases accepted: admin, roads, swm, elec, water, corporator'}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem', margin: 0 }}>
+                    {language === 'kn' ? 'ಪಾಸ್‌ವರ್ಡ್' : 'Password'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '0.76rem',
+                      color: '#4b5e28',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontWeight: 700
+                    }}
+                  >
+                    {showLoginPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    <span>{showLoginPassword ? (language === 'kn' ? 'ಮರೆಮಾಡಿ' : 'Hide') : (language === 'kn' ? 'ತೋರಿಸಿ' : 'Show')}</span>
+                  </button>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    className="form-input"
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    style={{
+                      padding: '12px 14px',
+                      fontSize: '0.94rem',
+                      borderRadius: '8px',
+                      borderColor: '#dcd1b5'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading} 
+                className="btn btn-olive"
+                style={{
+                  width: '100%',
+                  padding: '13px',
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  backgroundColor: '#4b5e28',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(75, 94, 40, 0.2)'
+                }}
+              >
+                {loading 
+                  ? (language === 'kn' ? 'ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ...' : 'Signing in...') 
+                  : (language === 'kn' ? 'ಪೋರ್ಟಲ್‌ಗೆ ಸೈನ್ ಇನ್ ಮಾಡಿ' : 'Sign In to Portal')}
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '0.85rem', color: '#5e6654' }}>
+                {language === 'kn' ? 'ಹೊಸ ನಾಗರಿಕರೇ?' : 'New to Mysuru Civic Connect?'}{' '}
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => { setAuthMode('register'); setErrorMsg(''); }}
                   style={{
                     background: 'none',
                     border: 'none',
-                    fontSize: '0.76rem',
                     color: '#4b5e28',
+                    fontWeight: 800,
                     cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontWeight: 700
+                    textDecoration: 'underline'
                   }}
                 >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                  <span>{showPassword ? (language === 'kn' ? 'ಮರೆಮಾಡಿ' : 'Hide') : (language === 'kn' ? 'ತೋರಿಸಿ' : 'Show')}</span>
+                  {language === 'kn' ? 'ಇಲ್ಲಿ ನೋಂದಾಯಿಸಿ' : 'Create a Citizen Account'}
                 </button>
               </div>
-              <div style={{ position: 'relative' }}>
-                <input 
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  className="form-input"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{
-                    padding: '12px 14px',
-                    fontSize: '0.94rem',
-                    borderRadius: '8px',
-                    borderColor: '#dcd1b5'
-                  }}
-                />
+            </form>
+          ) : (
+            /* TAB 2: REGISTER CITIZEN FORM */
+            <form onSubmit={handleRegisterSubmit}>
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                  {language === 'kn' ? 'ಪೂರ್ಣ ಹೆಸರು *' : 'Full Name *'}
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text"
+                    required
+                    className="form-input"
+                    placeholder="e.g. Ramesh Kumar"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                  />
+                </div>
               </div>
-            </div>
 
-            <button 
-              type="submit" 
-              disabled={loading} 
-              className="btn btn-olive"
-              style={{
-                width: '100%',
-                padding: '13px',
-                fontSize: '1rem',
-                fontWeight: 800,
-                backgroundColor: '#4b5e28',
-                color: '#ffffff',
-                boxShadow: '0 2px 8px rgba(75, 94, 40, 0.2)'
-              }}
-            >
-              {loading 
-                ? (language === 'kn' ? 'ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ...' : 'Authenticating...') 
-                : (language === 'kn' ? 'ಪೋರ್ಟಲ್‌ಗೆ ಸೈನ್ ಇನ್ ಮಾಡಿ' : 'Sign In to Portal')}
-            </button>
-          </form>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                    {language === 'kn' ? 'ಇಮೇಲ್ ವಿಳಾಸ *' : 'Email Address *'}
+                  </label>
+                  <input 
+                    type="email"
+                    required
+                    className="form-input"
+                    placeholder="name@example.com"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                  />
+                </div>
 
-          {/* Security Email Dispatch Notice */}
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                    {language === 'kn' ? 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ *' : 'Mobile Number (10 digits) *'}
+                  </label>
+                  <input 
+                    type="tel"
+                    required
+                    className="form-input"
+                    placeholder="9880012345"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value)}
+                    style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                  {language === 'kn' ? 'ನಿಮ್ಮ ಮೈಸೂರು ವಾರ್ಡ್ (ಐಚ್ಛಿಕ)' : 'Primary Mysuru Municipal Ward (Optional)'}
+                </label>
+                <select
+                  value={regWard}
+                  onChange={(e) => setRegWard(e.target.value)}
+                  className="form-select"
+                  style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                >
+                  <option value="">{language === 'kn' ? '-- ವಾರ್ಡ್ ಆಯ್ಕೆಮಾಡಿ (ಐಚ್ಛಿಕ) --' : '-- Select Your Ward (Optional) --'}</option>
+                  {sortedWards.map(w => (
+                    <option key={w.ward_number} value={w.ward_number}>
+                      Ward {w.ward_number} - {w.ward_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                <div className="form-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem', margin: 0 }}>
+                      {language === 'kn' ? 'ಪಾಸ್‌ವರ್ಡ್ *' : 'Password *'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: '#4b5e28', cursor: 'pointer', fontWeight: 700 }}
+                    >
+                      {showRegPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <input 
+                    type={showRegPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Min 6 chars"
+                    className="form-input"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#3f4738', fontWeight: 700, fontSize: '0.85rem' }}>
+                    {language === 'kn' ? 'ದೃಢೀಕರಿಸಿ *' : 'Confirm Password *'}
+                  </label>
+                  <input 
+                    type={showRegPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Repeat password"
+                    className="form-input"
+                    value={regConfirmPassword}
+                    onChange={(e) => setRegConfirmPassword(e.target.value)}
+                    style={{ padding: '11px 14px', fontSize: '0.92rem', borderRadius: '8px', borderColor: '#dcd1b5' }}
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading} 
+                className="btn btn-olive"
+                style={{
+                  width: '100%',
+                  padding: '13px',
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  backgroundColor: '#4b5e28',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(75, 94, 40, 0.2)'
+                }}
+              >
+                {loading 
+                  ? (language === 'kn' ? 'ಖಾತೆ ರಚಿಸಲಾಗುತ್ತಿದೆ...' : 'Registering Account...') 
+                  : (language === 'kn' ? 'ನಾಗರಿಕ ಖಾತೆ ರಚಿಸಿ & ಸೈನ್ ಇನ್ ಮಾಡಿ' : 'Create Citizen Account & Sign In')}
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '0.85rem', color: '#5e6654' }}>
+                {language === 'kn' ? 'ಈಗಾಗಲೇ ಖಾತೆ ಹೊಂದಿದ್ದೀರಾ?' : 'Already have an account?'}{' '}
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); setErrorMsg(''); }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#4b5e28',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                >
+                  {language === 'kn' ? 'ಇಲ್ಲಿ ಸೈನ್ ಇನ್ ಮಾಡಿ' : 'Sign in here'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Citizen Benefits Box */}
           <div style={{
-            marginTop: '20px',
-            padding: '10px 14px',
-            backgroundColor: '#fbf7ed',
-            border: '1px solid #d4af37',
-            borderRadius: '8px',
-            fontSize: '0.76rem',
-            color: '#634e14',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
+            marginTop: '22px',
+            padding: '12px 16px',
+            backgroundColor: '#fbf8f0',
+            border: '1px solid #e2d7ba',
+            borderRadius: '9px',
+            fontSize: '0.78rem',
+            color: '#5b6451',
+            lineHeight: 1.5
           }}>
-            <Shield size={16} color="#b38328" style={{ flexShrink: 0 }} />
-            <div>
-              <strong>Security Protocol:</strong> All login authentication alerts and security logs are automatically dispatched to <strong>hemanthkm2006@gmail.com</strong> (Website Owner).
-            </div>
+            <strong style={{ color: '#3c4e1f' }}>🏛️ {language === 'kn' ? 'ನಾಗರಿಕ ನೋಂದಣಿಯ ಪ್ರಯೋಜನಗಳು:' : 'Resident Privileges:'}</strong>{' '}
+            {language === 'kn' 
+              ? 'ದೂರು ಸಲ್ಲಿಸುವಾಗ ನಿಮ್ಮ ವಿವರಗಳನ್ನು ಸ್ವಯಂ-ಭರ್ತಿ ಮಾಡಲಾಗುತ್ತದೆ, ನಿಮ್ಮ ವಾರ್ಡ್‌ನ ಎಲ್ಲಾ ದೂರುಗಳನ್ನು ಟ್ರ್ಯಾಕ್ ಮಾಡಬಹುದು ಮತ್ತು ಅಧಿಕಾರಿಗಳಿಂದ ತ್ವರಿತ ಪರಿಹಾರ ಪರಿಶೀಲನೆ ಪಡೆಯಬಹುದು.'
+              : 'Registered citizens enjoy 1-click grievance filing, auto-filled contact verification, real-time resolution updates, and direct ward corporator visibility.'}
           </div>
 
-          {/* 1-Click Instant Login Cards */}
-          <div style={{ marginTop: '24px', borderTop: '1.5px solid #e8dfc9', paddingTop: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#4b5e28', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {language === 'kn' ? '⚡ ೧-ಕ್ಲಿಕ್ ತ್ವರಿತ ಲಾಗಿನ್ ಖಾತೆಗಳು' : '⚡ 1-Click Instant Staff Access'}
+          {/* Municipal Staff Demo / Quick Access Section */}
+          <div style={{ marginTop: '28px', borderTop: '1.5px solid #e8dfc9', paddingTop: '20px' }}>
+            <div style={{ marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: '#b38328'
+                }}></span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#4b5e28', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {language === 'kn' ? '⚡ ಅಧಿಕೃತ ಸಿಬ್ಬಂದಿ ಡೆಮೊ ಲಾಗಿನ್' : '⚡ Municipal Staff & Official Demo Access'}
                 </span>
-                <div style={{ fontSize: '0.74rem', color: '#6e7762', marginTop: '2px' }}>
-                  {language === 'kn' ? 'ಯಾವುದೇ ಖಾತೆಯನ್ನು ಕ್ಲಿಕ್ ಮಾಡಿ ತಕ್ಷಣ ಲಾಗಿನ್ ಆಗಿ' : 'Click "⚡ Instant" to log in directly to that staff role'}
-                </div>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#6e7762', marginTop: '2px' }}>
+                {language === 'kn' 
+                  ? 'ಪಾಲಿಕೆ ಇಲಾಖೆಗಳು, ಇಂಜಿನಿಯರ್‌ಗಳು ಮತ್ತು ಕಾರ್ಪೊರೇಟರ್‌ಗಳ ಪರೀಕ್ಷಾರ್ಥ ೧-ಕ್ಲಿಕ್ ಲಾಗಿನ್' 
+                  : '1-click access to test departmental dispatch boards, engineer verification, and corporator metrics:'}
               </div>
             </div>
 
-            {/* List of Pre-Seeded Staff Roles */}
+            {/* List of Pre-Seeded Official Staff Roles */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               
-              {/* WEBSITE OWNER CARD */}
-              <div style={{
-                padding: '14px 16px',
-                background: 'linear-gradient(135deg, #fefce8 0%, #fdf8e1 100%)',
-                border: '2px solid #d4af37',
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
-                boxShadow: '0 3px 10px rgba(212, 175, 55, 0.2)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{
-                    width: '42px',
-                    height: '42px',
-                    borderRadius: '10px',
-                    background: 'linear-gradient(135deg, #d4af37, #8c6b16)',
-                    color: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 900,
-                    fontSize: '1.15rem',
-                    boxShadow: '0 2px 6px rgba(140, 107, 22, 0.3)'
-                  }}>
-                    👑
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '0.94rem', fontWeight: 900, color: '#6f5410' }}>
-                        Hemanth K M
-                      </span>
-                      <span style={{
-                        fontSize: '0.66rem',
-                        fontWeight: 800,
-                        backgroundColor: '#d4af37',
-                        color: '#ffffff',
-                        padding: '2px 7px',
-                        borderRadius: '10px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em'
-                      }}>
-                        Website Owner
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#5e6654', marginTop: '2px' }}>
-                      <strong>hemanthkm2006@gmail.com</strong> • Full Super Admin & Security Dispatch
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleInstantLogin('hemanthkm2006@gmail.com', 'Admin@123')}
-                    disabled={loading}
-                    className="btn btn-olive"
-                    style={{
-                      padding: '8px 14px',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                      backgroundColor: '#4b5e28',
-                      color: '#ffffff',
-                      boxShadow: '0 2px 6px rgba(75, 94, 40, 0.25)'
-                    }}
-                  >
-                    ⚡ Instant
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePreFill('hemanthkm2006@gmail.com', 'Admin@123')}
-                    className="btn btn-outline"
-                    style={{
-                      padding: '8px 10px',
-                      fontSize: '0.78rem',
-                      fontWeight: 700,
-                      backgroundColor: '#ffffff',
-                      borderColor: '#d4af37',
-                      color: '#6f5410'
-                    }}
-                  >
-                    Fill
-                  </button>
-                </div>
-              </div>
-
               {/* Central Administrator Card */}
               <div style={{
                 padding: '12px 14px',
@@ -449,12 +705,12 @@ export default function Login({ setActivePage }) {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: '12px',
-                boxShadow: '0 1px 4px rgba(212, 175, 55, 0.12)'
+                boxShadow: '0 2px 6px rgba(212, 175, 55, 0.12)'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{
-                    width: '36px',
-                    height: '36px',
+                    width: '38px',
+                    height: '38px',
                     borderRadius: '8px',
                     backgroundColor: '#d4af37',
                     color: '#ffffff',
@@ -462,7 +718,7 @@ export default function Login({ setActivePage }) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontWeight: 800,
-                    fontSize: '0.9rem'
+                    fontSize: '1rem'
                   }}>
                     🏛️
                   </div>
@@ -471,7 +727,7 @@ export default function Login({ setActivePage }) {
                       MCC Central Administrator
                     </div>
                     <div style={{ fontSize: '0.73rem', color: '#5e6654' }}>
-                      admin@mcc.gov.in • City oversight & verification
+                      admin@mcc.gov.in • City oversight & verification queue
                     </div>
                   </div>
                 </div>
@@ -886,6 +1142,65 @@ export default function Login({ setActivePage }) {
                   </div>
                 </div>
               </div>
+
+              {/* Citizen Demo Account */}
+              <div style={{
+                marginTop: '6px',
+                padding: '10px 12px',
+                backgroundColor: '#f4f8ee',
+                border: '1.5px solid #b8cda2',
+                borderRadius: '9px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#2d3e17', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>👤</span>
+                    <span>Sample Citizen Account (Praveen Kumar)</span>
+                  </div>
+                  <div style={{ fontSize: '0.70rem', color: '#556643', marginTop: '2px' }}>
+                    citizen@example.com • Ward 12 Resident
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleInstantLogin('citizen@example.com', 'Citizen@123')}
+                    disabled={loading}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800,
+                      backgroundColor: '#4b5e28',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⚡ Instant
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePreFill('citizen@example.com', 'Citizen@123')}
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: '0.74rem',
+                      fontWeight: 600,
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #b8cda2',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      color: '#2d3e17'
+                    }}
+                  >
+                    Fill
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

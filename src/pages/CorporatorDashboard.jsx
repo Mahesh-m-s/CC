@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import ComplaintCard from '../components/ComplaintCard';
 import api from '../services/api';
+import { fetchCorporatorData } from '../services/complaintService';
 import { BarChart3, Bell, CheckCircle2, AlertTriangle, ShieldCheck, Clock, Activity } from 'lucide-react';
 
 export default function CorporatorDashboard() {
@@ -16,22 +17,22 @@ export default function CorporatorDashboard() {
     const loadWardData = async () => {
       setLoading(true);
       try {
-        const [analyticsRes, complaintsRes, notifsRes] = await Promise.all([
-          api.get('/corporator/ward-analytics'),
-          api.get('/corporator/complaints'),
-          api.get('/corporator/notifications')
+        const corporatorWardId = user?.ward_id || 12;
+        const [data, notifsRes] = await Promise.all([
+          fetchCorporatorData(corporatorWardId),
+          api.get('/corporator/notifications').catch(() => ({ data: { notifications: [] } }))
         ]);
-        setAnalytics(analyticsRes.data);
-        setComplaints(complaintsRes.data.complaints || []);
-        setNotifications(notifsRes.data.notifications || []);
+        setAnalytics(data.analytics);
+        setComplaints(data.complaints || []);
+        setNotifications(notifsRes.data?.notifications || []);
       } catch (err) {
-        console.error(err);
+        console.error('[CorporatorDashboard] Error loading ward data:', err);
       } finally {
         setLoading(false);
       }
     };
     loadWardData();
-  }, []);
+  }, [user]);
 
   return (
     <div className="container" style={{ padding: '30px 20px' }}>

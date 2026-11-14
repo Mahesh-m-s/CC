@@ -2,11 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import ComplaintCard from '../components/ComplaintCard';
 import api from '../services/api';
-import { CheckSquare, Play, Upload, Camera, MapPin, AlertCircle, Clock, Filter, Calendar } from 'lucide-react';
+import { 
+  fetchOfficerComplaints, 
+  updateOfficerWorkStatus, 
+  submitResolutionEvidence 
+} from '../services/complaintService';
+import { CheckSquare, Play, Upload, Camera, MapPin, AlertCircle, Clock, Filter, Calendar, RefreshCw } from 'lucide-react';
 import { formatDateTime, extractExifGps } from '../utils/exifHelper';
 
 export default function OfficerDashboard() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('');
@@ -27,13 +32,17 @@ export default function OfficerDashboard() {
   const fetchComplaints = async () => {
     setLoading(true);
     try {
-      let url = '/officer/complaints?';
-      if (filterStatus) url += `status=${filterStatus}&`;
-      if (filterPriority) url += `priority=${filterPriority}&`;
-      const res = await api.get(url);
-      setComplaints(res.data.complaints || []);
+      const data = await fetchOfficerComplaints({
+        officerId: user?.id,
+        departmentId: user?.department_id,
+        status: filterStatus,
+        priority: filterPriority,
+        token
+      });
+      setComplaints(data || []);
     } catch (err) {
-      console.error(err);
+      console.error('[OfficerDashboard] Error fetching complaints:', err);
+      setComplaints([]);
     } finally {
       setLoading(false);
     }
@@ -41,15 +50,20 @@ export default function OfficerDashboard() {
 
   useEffect(() => {
     fetchComplaints();
-  }, [filterStatus, filterPriority]);
+  }, [filterStatus, filterPriority, user]);
 
   const handleStartWork = async (complaintId) => {
     try {
-      await api.patch(`/officer/complaints/${complaintId}/start`);
+      await updateOfficerWorkStatus({
+        complaintId,
+        officerId: user?.id,
+        officerName: user?.name,
+        newStatus: 'In Progress'
+      });
       setBannerMsg({ type: 'success', text: `Work started on complaint #${complaintId}. Status set to IN PROGRESS.` });
       fetchComplaints();
     } catch (err) {
-      setBannerMsg({ type: 'error', text: err.response?.data?.error || 'Failed to start work' });
+      setBannerMsg({ type: 'error', text: err.message || 'Failed to start work' });
     }
   };
 
@@ -109,23 +123,31 @@ export default function OfficerDashboard() {
     }
 
     setResolving(true);
-    const fd = new FormData();
-    fd.append('resolution_photo', resolvePhoto);
-    fd.append('latitude', resolveLat);
-    fd.append('longitude', resolveLng);
-    fd.append('location_source', resolveLocationSource);
-    fd.append('notes', resolveNotes);
+    setModalMsg('Uploading resolution proof directly to AWS S3...');
 
     try {
-      const res = await api.post(`/officer/complaints/${selectedComplaint.id}/resolve`, fd);
+      const res = await submitResolutionEvidence({
+        complaintId: selectedComplaint.id,
+        originalLat: selectedComplaint.latitude,
+        originalLng: selectedComplaint.longitude,
+        resolveLat,
+        resolveLng,
+        photo: resolvePhoto,
+        notes: resolveNotes,
+        officerId: user?.id,
+        officerName: user?.name,
+        token,
+        onProgress: (pct) => setModalMsg(`Transferring image to S3 bucket (${pct}%)...`)
+      });
+
       setBannerMsg({
         type: 'success',
-        text: `Resolution submitted! Distance calculated: ${res.data.distance_from_original_m}m. Forwarded to Admin for verification.`
+        text: `Resolution evidence verified in S3 & submitted! Distance from origin: ${res.distance_from_original_m}m. Forwarded to Admin for verification.`
       });
       setSelectedComplaint(null);
       fetchComplaints();
     } catch (err) {
-      setModalMsg(err.response?.data?.error || 'Submission failed');
+      setModalMsg(err.message || 'Submission failed');
     } finally {
       setResolving(false);
     }

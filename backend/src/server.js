@@ -12,9 +12,14 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
 
-// Permitted origins for local dev and CloudFront deployments
+// Permitted origins for local dev, Render, and CloudFront deployments
+const configuredOrigins = FRONTEND_ORIGIN
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 const allowedOrigins = [
-  FRONTEND_ORIGIN,
+  ...configuredOrigins,
   'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:3000',
@@ -26,6 +31,7 @@ app.use(cors({
     if (
       !origin ||
       allowedOrigins.includes(origin) ||
+      origin.endsWith('.onrender.com') ||
       origin.endsWith('.cloudfront.net')
     ) {
       return callback(null, true);
@@ -43,9 +49,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // -----------------------------------------------------------------------------
-// Health Check Endpoint
+// Health Check Endpoints (Supports both /health and /api/health for Render)
 // -----------------------------------------------------------------------------
-app.get('/api/health', (req, res) => {
+const healthHandler = (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'Mysuru Civic Connect (MCC) Cloud Backend',
@@ -63,7 +69,10 @@ app.get('/api/health', (req, res) => {
       }
     }
   });
-});
+};
+
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // -----------------------------------------------------------------------------
 // Mount Uploads API Router

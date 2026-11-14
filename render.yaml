@@ -1,0 +1,54 @@
+services:
+  # ============================================================================
+  # 1. Mysuru Civic Connect - Express Backend Web Service
+  # ============================================================================
+  - type: web
+    name: mcc-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    region: singapore # Closest to AWS S3 ap-southeast-1
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_ORIGIN
+        sync: false # Set to your deployed frontend URL (e.g., https://mcc-frontend.onrender.com)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+  # ============================================================================
+  # 2. Mysuru Civic Connect - React 19 + Vite Frontend Static Site
+  # ============================================================================
+  - type: web
+    name: mcc-frontend
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      # SPA fallback routing rule for React client-side pages
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false # Set to your deployed backend URL (e.g., https://mcc-backend.onrender.com)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+

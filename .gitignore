@@ -6,21 +6,16 @@ __pycache__/
 instance/
 .pytest_cache/
 node_modules/
-frontend/dist/
-!backend/dist/
+dist/
 dist-ssr/
+frontend/dist/
+backend/dist/
 *.local
-backend/ml/raw_datasets/
-backend/app/static/uploads/*
-!backend/app/static/uploads/.gitkeep
-backend/ml/dataset/
-data/
-reports/
-.venv/
-.venv*/
 
-# Environment secrets
+# Environment secrets (Never commit to Git)
 .env
 .env.*
 !.env.example
-.env.local
+backend/.env
+backend/.env.*
+!backend/.env.example

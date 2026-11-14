@@ -798,7 +798,9 @@ const api = axios.create({
 
 export const API_BASE = '/api';
 
-export const BACKEND_URL = 'http://localhost:4000/api';
+const envConfig = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (typeof process !== 'undefined' ? process.env : {});
+const apiBaseHost = (envConfig.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+export const BACKEND_URL = `${apiBaseHost}/api`;
 
 export const uploadApi = axios.create({
   baseURL: BACKEND_URL,

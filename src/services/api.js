@@ -799,7 +799,12 @@ const api = axios.create({
 export const API_BASE = '/api';
 
 const envConfig = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (typeof process !== 'undefined' ? process.env : {});
-const apiBaseHost = (envConfig.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const apiBaseHost = (
+  envConfig.VITE_API_BASE_URL ||
+  (typeof window !== 'undefined' && window.location && window.location.hostname.includes('onrender.com')
+    ? 'https://mcc-backend-1uqx.onrender.com'
+    : 'http://localhost:4000')
+).replace(/\/+$/, '');
 export const BACKEND_URL = `${apiBaseHost}/api`;
 
 export const uploadApi = axios.create({

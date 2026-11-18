@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import MapView from '../components/MapView';
 import api from '../services/api';
 import { submitComplaint, uploadComplaintImage, resolveCategoryAndDepartment } from '../services/complaintService';
+import { getApiBaseUrl } from '../services/s3UploadService';
 import { Camera, MapPin, Upload, AlertCircle, CheckCircle2, ArrowRight, Loader2, Sparkles, ShieldAlert, Layers, RefreshCw, Check } from 'lucide-react';
 import { extractExifGps, stampGeotagOnImage, formatDateTime } from '../utils/exifHelper';
 import { useLanguage } from '../context/LanguageContext';
@@ -124,6 +125,12 @@ export default function FileComplaint({ setActivePage }) {
   useEffect(() => {
     requestCurrentLocation(true);
     fetchWardForPoint(latitude, longitude);
+
+    // Warm up Render backend Web Service in background if asleep (cold start mitigation)
+    try {
+      const backendBase = getApiBaseUrl();
+      fetch(`${backendBase}/health`, { method: 'GET', mode: 'cors' }).catch(() => {});
+    } catch (_) {}
 
     const loadWards = async () => {
       try {
